@@ -4,6 +4,8 @@
 # C:/Program Files (x86)/Microsoft Visual Studio/2017/Enterprise/VC/Tools/MSVC/14.11.25503/bin/Hostx86/x86
 # so that cl, link and nmake are available on the console.
 
+# Set MSVC, MPI and OpenCL paths to your setup!
+
 # Use nmake with this Makefile
 
 # Currently building 32 bit because MPI dll is only 32 bit
@@ -43,7 +45,7 @@ main.preprocessed.cpp: main.cpp
 runMCML-windows.o: runMCML.preprocessed.cpp
 	cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
 
-runMCML.preprocessed.cpp: runMCML.cpp
+runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
 	cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
