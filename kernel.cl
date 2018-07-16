@@ -147,7 +147,7 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 		// randomize step length
 		rng_state = rand_xorshift(rng_state);
 		float rand = (float)rng_state * (1.0f / 4294967296.0f);
-		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current random number setup)
+		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
 		// test layer interaction by intersection
 		// (unfinished part of s can be ignored)
 		float pathLenToIntersection = intersect(pos, dir, currentLayer->top);

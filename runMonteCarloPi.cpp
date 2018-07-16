@@ -6,7 +6,7 @@ const char* getCLKernelName() {
 }
 
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel,
-size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
+size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, char* kernelOptions, char* otherOptions) {
 	unsigned int* hostBuffer = new unsigned int[totalThreadCount];
 	cl_mem gpuBuffer = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, totalThreadCount * sizeof(unsigned int), NULL);
 	int npoints = 1000;

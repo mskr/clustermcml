@@ -6,7 +6,7 @@ const char* getCLKernelName() {
 }
 
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel simpsonKernel,
-size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
+size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, char* kernelOptions, char* otherOptions) {
 	
 	constexpr float a = 0;
 	constexpr float b = 1;

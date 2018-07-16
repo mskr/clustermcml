@@ -7,16 +7,14 @@
 #include <fstream> // std::ifstream, std::ofstream
 
 // Own
-#include "clerr2str.h"
+#include "clerr2str.c"
 #define DEBUG
-#include "macros.h"
+#include "clcheck.h"
 
-void usage() {
-	std::cout << "Usage:" << std::endl;
-	std::cout << "Argument 1: OpenCL kernel file" << std::endl;
-	std::cout << "Argument 2 (optional): OpenCL compiler options" << std::endl;
-	MPI_Abort(MPI_COMM_WORLD, 1);
-}
+// MPI process id
+static int rank = 0;
+
+void usage();
 
 void readCLSourceCode(int nargs, char** args, char** outsrc, size_t* outlen) {
 	if(nargs < 2) usage();
@@ -56,7 +54,6 @@ void readCLSourceCode(int nargs, char** args, char** outsrc, size_t* outlen) {
 	*outlen = kernellen + 1;
 }
 
-// Does not work on Radeon5850: GetProgramInfo(...CL_PROGRAM_BINARIES...) output seems wrong, then delete crashes
 void writeCLByteCode(int nargs, char** args, cl_program program, cl_uint devicecount, char* devicenames) {
 	if(nargs < 2) usage();
 	char kfilepath[256];
@@ -221,7 +218,15 @@ void createCLCommandQueue(cl_context context, cl_device_id device, cl_command_qu
 // interfaces for external code
 const char* getCLKernelName();
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel,
-	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
+	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, char* kernelOptions, char* otherOptions);
+
+void usage()  {
+	std::cout << "Usage:" << std::endl;
+	std::cout << "Argument 1: OpenCL kernel file" << std::endl;
+	std::cout << "Argument 2 (optional): OpenCL compiler options" << std::endl;
+	std::cout << "Argument 3 (optional): Options for " << getCLKernelName() << std::endl;
+	MPI_Abort(MPI_COMM_WORLD, 1);
+}
 
 int main(int nargs, char** args) {
 	MPI_Init(&nargs, &args);
@@ -267,11 +272,11 @@ int main(int nargs, char** args) {
 	// Nvidia warps and AMD wavefronts are the subsets of a multiprocessor that share the same instruction dispatcher
 	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE == warp/wavefront size
 	// 
-	// 												| ATI Radeon 5850 	| Intel Graphics 4600 	| NVIDIA GTX 1080	|
+	//                                              | ATI Radeon 5850   | Intel Graphics 4600   | NVIDIA GTX 1080   |
 	// --------------------------------------------------------------------------------------------------------------
-	// CL_DEVICE_MAX_COMPUTE_UNITS 					| 18				|						|					|
-	// CL_DEVICE_MAX_WORK_GROUP_SIZE 				| 256				|						|					|
-	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE | 64				|						|					|
+	// CL_DEVICE_MAX_COMPUTE_UNITS                  | 18                |
+	// CL_DEVICE_MAX_WORK_GROUP_SIZE                | 256               |
+	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE | 64                |
 	*****************************************************************************************************************/
 	cl_kernel kernel = CLCREATE(Kernel, program, getCLKernelName());
 	size_t warpSize;
@@ -282,7 +287,10 @@ int main(int nargs, char** args) {
 	cl_uint multiprocessorCount;
 	CL(GetDeviceInfo, devices[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &multiprocessorCount, NULL);
 	size_t totalThreadCount = multiprocessorCount * simdThreadCount;
-	runCLKernel(context, cmdQueue1, kernel, totalThreadCount, simdThreadCount, processCount, rank);
+	char kernelOptions[512];
+	CL(GetProgramBuildInfo, program, devices[0], CL_PROGRAM_BUILD_OPTIONS, 512, kernelOptions, NULL);
+	char* otherOptions = nargs >= 4 ? args[3] : "";
+	runCLKernel(context, cmdQueue1, kernel, totalThreadCount, simdThreadCount, processCount, rank, kernelOptions, otherOptions);
 
 	delete[] src;
 	delete[] devices;
