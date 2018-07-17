@@ -125,7 +125,7 @@ float henyeyGreenstein(float g, float rand) {
 
 #define MAX_ITERATIONS 1000 //TODO adapt to watchdog timer
 
-__kernel void mcml(float outer_n, __global struct Layer* layers, int layerCount,
+__kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 volatile __global uint* reflectCount, volatile __global uint* transmitCount, volatile __global uint* absorbCount
 /*float delta_r, float delta_z, float delta_a, int size_r, int size_z, int size_a,
 __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
@@ -133,7 +133,7 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 	// percentage of light leaving at surface without any interaction
 	// using Fesnel simplified (no incident angle, no polarization)
 	//TODO calc this on host since every thread would calc the same
-	float R_specular = pow((outer_n - layers[0].n), 2) / pow((outer_n + layers[0].n), 2);
+	float R_specular = pow((nAbove - layers[0].n), 2) / pow((nAbove + layers[0].n), 2);
 	// Q: why are the ^2 different than in Fesnel?
 	// Q: is diffuse reflectance given by photons escaping at top after simulation?
 	float photonWeight = 1.0f - R_specular;

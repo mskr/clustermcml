@@ -29,15 +29,21 @@ void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, char* kernelOptions, char* mcmlOptions) {
 	int ignoreA = std::string(kernelOptions).find("-D IGNORE_A") != std::string::npos ? 1 : 0;
 	SimulationStruct* simulations;
+	std::cout << "--- start reading mcml input file "<<mcmlOptions<<" --->" << std::endl;
 	int simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
+	std::cout << "<--- finished reading mcml input file "<<mcmlOptions<<" ---" << std::endl;
 	for (int i = 0; i < simCount; i++) {
-		float outerN = 1.000292f; // air
-		CL(SetKernelArg, kernel, 0, sizeof(float), &outerN);
+		int argCount = 0;
+		// first and last layer have only n initialized and represent outer media
+		float nAbove = simulations[i].layers[0].n;
+		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nAbove);
 		int layerCount = simulations[i].n_layers;
+		float nBelow = simulations[i].layers[layerCount + 1].n;
+		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
 		Layer* layers = new Layer[layerCount];
 		// Q: why do mcml authors set scattering coeff which is probability to greater 1?
-		for (int j = 0; j < layerCount; j++) {
-			layers[j] = {
+		for (int j = 1; j <= layerCount; j++) {
+			layers[j - 1] = {
 				simulations[i].layers[j].mua,
 				1.0f / simulations[i].layers[j].mutr - simulations[i].layers[j].mua,
 				simulations[i].layers[j].g,
@@ -45,20 +51,19 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, cha
 				Boundary{simulations[i].layers[j].z_min, 0.0f, 0.0f, 1.0f},
 				Boundary{simulations[i].layers[j].z_max, 0.0f, 0.0f, -1.0f},
 			};
-			std::cout << simulations[i].layers[j].z_min << " " << simulations[i].layers[j].z_max << std::endl; //TODO read unreasonable z values
 		}
 		cl_mem gpuLayers = CLCREATE(Buffer, context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, layerCount * sizeof(Layer), layers);
-		CL(SetKernelArg, kernel, 1, sizeof(cl_mem), &gpuLayers);
-		CL(SetKernelArg, kernel, 2, sizeof(int), &layerCount);
+		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuLayers);
+		CL(SetKernelArg, kernel, argCount++, sizeof(int), &layerCount);
 		unsigned int reflectCount = 0;
 		unsigned int transmitCount = 0;
 		unsigned int absorbCount = 0;
 		cl_mem gpuReflectCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(unsigned int), &reflectCount);
 		cl_mem gpuTransmitCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(unsigned int), &transmitCount);
 		cl_mem gpuAbsorbCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(unsigned int), &absorbCount);
-		CL(SetKernelArg, kernel, 3, sizeof(cl_mem), &gpuReflectCount);
-		CL(SetKernelArg, kernel, 4, sizeof(cl_mem), &gpuTransmitCount);
-		CL(SetKernelArg, kernel, 5, sizeof(cl_mem), &gpuAbsorbCount);
+		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuReflectCount);
+		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuTransmitCount);
+		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuAbsorbCount);
 		cl_event event;
 		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &event);
 		CL(EnqueueReadBuffer, cmdQueue, gpuReflectCount, CL_FALSE, 0, sizeof(unsigned int), &reflectCount, 0, NULL, NULL);
