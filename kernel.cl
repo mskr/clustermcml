@@ -131,7 +131,7 @@ volatile __global uint* reflectCount, volatile __global uint* transmitCount, vol
 __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
-	// using Fesnel simplified (no incident angle, no polarization)
+	// using Fesnel approximation by Schlick (no incident angle, no polarization)
 	//TODO calc this on host since every thread would calc the same
 	float R_specular = pow((nAbove - layers[0].n), 2) / pow((nAbove + layers[0].n), 2);
 	// Q: why are the ^2 different than in Fesnel?
@@ -149,25 +149,42 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 		float rand = (float)rng_state * (1.0f / 4294967296.0f);
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
 		// test layer interaction by intersection
-		// (unfinished part of s can be ignored)
+		__global struct Boundary* intersectedBoundary = 0;
+		int otherLayerIndex = 0;
+		float otherN = 0;
+		volatile __global uint* photonCounter = 0;
 		float pathLenToIntersection = intersect(pos, dir, currentLayer->top);
 		if (pathLenToIntersection >= 0 && pathLenToIntersection <= s) {
-			pos += dir * pathLenToIntersection;
-			// decide transmit or reflect
-			layerIndex--; //TODO only in case of transmit
-			if (layerIndex < 0) {
-				// photon exits at top -> record diffuse reflectance
-				atomic_add(reflectCount, 1u);
-				break;
-			}
+			intersectedBoundary = &currentLayer->top;
+			otherLayerIndex = layerIndex - 1;
+			otherN = otherLayerIndex < 0 ? nAbove : layers[otherLayerIndex].n;
+			photonCounter = reflectCount;
 		} else if ((pathLenToIntersection = intersect(pos, dir, currentLayer->bottom)) >= 0 && pathLenToIntersection <= s) {
-			pos += dir * pathLenToIntersection;
+			intersectedBoundary = &currentLayer->bottom;
+			otherLayerIndex = layerIndex + 1;
+			otherN = otherLayerIndex >= layerCount ? nBelow : layers[otherLayerIndex].n;
+			photonCounter = transmitCount;
+		}
+		if (intersectedBoundary) {
+			pos += dir * pathLenToIntersection; // unfinished part of s can be ignored
 			// decide transmit or reflect
-			layerIndex++; // only in case of transmit
-			if (layerIndex >= layerCount) {
-				// photon exits at bottom -> record transmission
-				atomic_add(transmitCount, 1u);
-				break;
+			float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
+			float cosIncident = dot(normal, -dir);
+			float incidentAngle = acos(cosIncident);
+			float sinTransmit = currentLayer->n * sin(incidentAngle) / otherN; // Snell's law
+			float transmitAngle = asin(sinTransmit);
+			float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
+			rng_state = rand_xorshift(rng_state);
+			float rand = (float)rng_state * (1.0f / 4294967296.0f);
+			bool reflect = rand <= fresnelR;
+			if (!reflect) {
+				layerIndex = otherLayerIndex;
+				if (layerIndex < 0) {
+					atomic_add(photonCounter, 1u); //TODO why get only reflects?
+					break;
+				}
+			} else {
+				dir += normal * dot(normal, dir) * 2.0f; // mirror dir vector against boundary plane
 			}
 		} else { // absorb and scatter
 			pos += dir * s; // hop
@@ -183,7 +200,7 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 			dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
 			dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
 			dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
-			if (photonWeight < 0.01f) { //TODO roulette
+			if (photonWeight < 0.1f) { //TODO roulette
 				atomic_add(absorbCount, 1u);
 				break;
 			}
