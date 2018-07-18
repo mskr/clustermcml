@@ -179,8 +179,8 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 			bool reflect = rand <= fresnelR;
 			if (!reflect) {
 				layerIndex = otherLayerIndex;
-				if (layerIndex < 0) {
-					atomic_add(photonCounter, 1u); //TODO why get only reflects?
+				if (layerIndex < 0 || layerIndex >= layerCount) {
+					atomic_add(photonCounter, 1u);
 					break;
 				}
 			} else {
