@@ -1,4 +1,5 @@
 // C
+//TODO platform-switch to include either direct.h (+redefines) or unistd.h
 #include <direct.h> // _getcwd, _stat
 #include <string.h> // memcpy
 
@@ -194,6 +195,7 @@ cl_uint* outdevicecount, char* outdevicenames, cl_uint* outplatformcount, char* 
 void compileCLSourceCode(int nargs, char** args, char* src, size_t len,
 cl_context context, cl_device_id* devices, cl_uint devicecount, cl_program* outprogram, char* outerr, size_t memc) {
 	char* cl_compiler_options = nargs >= 3 ? args[2] : "";
+	//TODO to share c header files with kernel append -I <getcwd> to compiler options
 	const char* programstr[1] = {src};
 	size_t programlen[1] = {len};
 	cl_program program = CLCREATE(ProgramWithSource, context, 1, programstr, programlen);
