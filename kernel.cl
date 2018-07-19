@@ -1,6 +1,9 @@
 // uncomment to use double if supported
 //#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
+// uncomment to use 64 bit atomics if supported
+//#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+
 //#include "random.cl" // not portable since this file can end up in temp folder
 
 // Following Nathan Reed's article:
@@ -123,7 +126,7 @@ float henyeyGreenstein(float g, float rand) {
 	}
 }
 
-#define MAX_ITERATIONS 1000 //TODO adapt to watchdog timer
+#define MAX_ITERATIONS 10000 //TODO adapt to watchdog timer
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 volatile __global uint* reflectCount, volatile __global uint* transmitCount, volatile __global uint* absorbCount
@@ -189,6 +192,18 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 		} else { // absorb and scatter
 			pos += dir * s; // hop
 			photonWeight -= photonWeight * currentLayer->absorbCoeff / interactCoeff; // drop
+			if (photonWeight < 0.0001f) {
+				// roulette
+				rng_state = rand_xorshift(rng_state);
+				float rand = (float)rng_state * (1.0f / 4294967296.0f);
+				if (rand <= 1.0f/10.0f) {
+					photonWeight *= 10.0f;
+				} else {
+					photonWeight = 0.0f;
+					atomic_add(absorbCount, 1u);
+					break;
+				}
+			}
 			// spin
 			rng_state = rand_xorshift(rng_state);
 			float rand = (float)rng_state * (1.0f / 4294967296.0f);
@@ -200,10 +215,7 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 			dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
 			dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
 			dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
-			if (photonWeight < 0.1f) { //TODO roulette
-				atomic_add(absorbCount, 1u);
-				break;
-			}
+			// Q: why different formula for dir close to normal?
 		}
 	}
 }
