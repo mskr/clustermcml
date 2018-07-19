@@ -1,5 +1,6 @@
 #include <iostream> // std::cout
 #include <string> // std::string
+#include "stdint.h" // uint32_t
 
 #define DEBUG
 #include "clcheck.h"
@@ -55,20 +56,20 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, cha
 		cl_mem gpuLayers = CLCREATE(Buffer, context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, layerCount * sizeof(Layer), layers);
 		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuLayers);
 		CL(SetKernelArg, kernel, argCount++, sizeof(int), &layerCount);
-		unsigned int reflectCount = 0;
-		unsigned int transmitCount = 0;
-		unsigned int absorbCount = 0;
-		cl_mem gpuReflectCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(unsigned int), &reflectCount);
-		cl_mem gpuTransmitCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(unsigned int), &transmitCount);
-		cl_mem gpuAbsorbCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(unsigned int), &absorbCount);
+		uint32_t reflectCount = 0;
+		uint32_t transmitCount = 0;
+		uint32_t absorbCount = 0;
+		cl_mem gpuReflectCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(uint32_t), &reflectCount);
+		cl_mem gpuTransmitCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(uint32_t), &transmitCount);
+		cl_mem gpuAbsorbCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(uint32_t), &absorbCount);
 		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuReflectCount);
 		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuTransmitCount);
 		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuAbsorbCount);
 		cl_event event;
 		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &event);
-		CL(EnqueueReadBuffer, cmdQueue, gpuReflectCount, CL_FALSE, 0, sizeof(unsigned int), &reflectCount, 0, NULL, NULL);
-		CL(EnqueueReadBuffer, cmdQueue, gpuTransmitCount, CL_FALSE, 0, sizeof(unsigned int), &transmitCount, 0, NULL, NULL);
-		CL(EnqueueReadBuffer, cmdQueue, gpuAbsorbCount, CL_FALSE, 0, sizeof(unsigned int), &absorbCount, 0, NULL, NULL);
+		CL(EnqueueReadBuffer, cmdQueue, gpuReflectCount, CL_FALSE, 0, sizeof(uint32_t), &reflectCount, 0, NULL, NULL);
+		CL(EnqueueReadBuffer, cmdQueue, gpuTransmitCount, CL_FALSE, 0, sizeof(uint32_t), &transmitCount, 0, NULL, NULL);
+		CL(EnqueueReadBuffer, cmdQueue, gpuAbsorbCount, CL_FALSE, 0, sizeof(uint32_t), &absorbCount, 0, NULL, NULL);
 		CL(Finish, cmdQueue);
 		if (rank == 0) {
 			cl_ulong timeStart, timeEnd;
