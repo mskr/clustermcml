@@ -126,12 +126,12 @@ float henyeyGreenstein(float g, float rand) {
 	}
 }
 
+#define PI 3.14159265359f
+
 #define MAX_ITERATIONS 10000 //TODO adapt to watchdog timer
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-volatile __global uint* reflectCount, volatile __global uint* transmitCount, volatile __global uint* absorbCount
-/*float delta_r, float delta_z, float delta_a, int size_r, int size_z, int size_a,
-__global __write_only float* A_rz, __global __write_only float* R_ra*/) {
+__global uint* R_ra, int size_r, int size_a, float delta_r) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
 	// using Fesnel approximation by Schlick (no incident angle, no polarization)
@@ -155,18 +155,15 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 		__global struct Boundary* intersectedBoundary = 0;
 		int otherLayerIndex = 0;
 		float otherN = 0;
-		volatile __global uint* photonCounter = 0;
 		float pathLenToIntersection = intersect(pos, dir, currentLayer->top);
 		if (pathLenToIntersection >= 0 && pathLenToIntersection <= s) {
 			intersectedBoundary = &currentLayer->top;
 			otherLayerIndex = layerIndex - 1;
 			otherN = otherLayerIndex < 0 ? nAbove : layers[otherLayerIndex].n;
-			photonCounter = reflectCount;
 		} else if ((pathLenToIntersection = intersect(pos, dir, currentLayer->bottom)) >= 0 && pathLenToIntersection <= s) {
 			intersectedBoundary = &currentLayer->bottom;
 			otherLayerIndex = layerIndex + 1;
 			otherN = otherLayerIndex >= layerCount ? nBelow : layers[otherLayerIndex].n;
-			photonCounter = transmitCount;
 		}
 		if (intersectedBoundary) {
 			pos += dir * pathLenToIntersection; // unfinished part of s can be ignored
@@ -182,8 +179,15 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 			bool reflect = rand <= fresnelR;
 			if (!reflect) {
 				layerIndex = otherLayerIndex;
-				if (layerIndex < 0 || layerIndex >= layerCount) {
-					atomic_add(photonCounter, 1u);
+				if (layerIndex < 0) { // photon escaped at top => record diffuse reflectance
+					float r = length(pos.xy);
+					int i = (int)floor(r / delta_r);
+					i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+					float a = transmitAngle / (2.0f * PI) * 360.0f;
+					int j = (int)floor(a / (90.0f / size_a));
+					atomic_add(&R_ra[i * size_a + j], (uint)(photonWeight * 4294967296.0f)); //TODO ulong to prevent overflows
+					break;
+				} else if (layerIndex >= layerCount) {
 					break;
 				}
 			} else {
@@ -200,7 +204,6 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 					photonWeight *= 10.0f;
 				} else {
 					photonWeight = 0.0f;
-					atomic_add(absorbCount, 1u);
 					break;
 				}
 			}
@@ -211,7 +214,7 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 			float theta = acos(cosTheta);
 			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * (1.0f / 4294967296.0f);
-			float psi = 2 * 3.14159265359f * rand;
+			float psi = 2 * PI * rand;
 			dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
 			dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
 			dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
@@ -225,6 +228,9 @@ __global __write_only float* A_rz, __global __write_only float* R_ra*/) {
 
 // Functions to get work group info
 // https://www.khronos.org/registry/OpenCL/sdk/1.0/docs/man/xhtml/workItemFunctions.html
+
+// OpenCL atomics
+// https://www.khronos.org/registry/OpenCL/sdk/1.2/docs/man/xhtml/atomicFunctions.html
 
 // OpenCL 2.0 atomics with float support etc.
 // https://software.intel.com/en-us/articles/using-opencl-20-atomics#_Toc398048807

@@ -1,6 +1,7 @@
 #include <iostream> // std::cout
 #include <string> // std::string
-#include "stdint.h" // uint32_t
+#include <stdint.h> // uint32_t
+#include <stdlib.h> // malloc, free
 
 #define DEBUG
 #include "clcheck.h"
@@ -37,12 +38,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, cha
 		int argCount = 0;
 		// first and last layer have only n initialized and represent outer media
 		float nAbove = simulations[i].layers[0].n;
+		float nBelow = simulations[i].layers[simulations[i].n_layers + 1].n;
 		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nAbove);
-		int layerCount = simulations[i].n_layers;
-		float nBelow = simulations[i].layers[layerCount + 1].n;
 		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
-		Layer* layers = new Layer[layerCount];
-		// Q: why do mcml authors set scattering coeff which is probability to greater 1?
+		int layerCount = simulations[i].n_layers;
+		Layer* layers = (Layer*)malloc(layerCount * sizeof(Layer));
 		for (int j = 1; j <= layerCount; j++) {
 			layers[j - 1] = {
 				simulations[i].layers[j].mua,
@@ -56,32 +56,39 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, cha
 		cl_mem gpuLayers = CLCREATE(Buffer, context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, layerCount * sizeof(Layer), layers);
 		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuLayers);
 		CL(SetKernelArg, kernel, argCount++, sizeof(int), &layerCount);
-		uint32_t reflectCount = 0;
-		uint32_t transmitCount = 0;
-		uint32_t absorbCount = 0;
-		cl_mem gpuReflectCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(uint32_t), &reflectCount);
-		cl_mem gpuTransmitCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(uint32_t), &transmitCount);
-		cl_mem gpuAbsorbCount = CLCREATE(Buffer, context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(uint32_t), &absorbCount);
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuReflectCount);
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuTransmitCount);
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuAbsorbCount);
-		cl_event event;
-		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &event);
-		CL(EnqueueReadBuffer, cmdQueue, gpuReflectCount, CL_FALSE, 0, sizeof(uint32_t), &reflectCount, 0, NULL, NULL);
-		CL(EnqueueReadBuffer, cmdQueue, gpuTransmitCount, CL_FALSE, 0, sizeof(uint32_t), &transmitCount, 0, NULL, NULL);
-		CL(EnqueueReadBuffer, cmdQueue, gpuAbsorbCount, CL_FALSE, 0, sizeof(uint32_t), &absorbCount, 0, NULL, NULL);
+
+		int radialBinCount = simulations[i].det.nr;
+		int angularBinCount = simulations[i].det.na;
+		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint32_t);
+		uint32_t* R_ra = (uint32_t*)malloc(reflectanceBufferSize);
+		cl_mem gpuR_ra = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, reflectanceBufferSize, NULL);
+		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &gpuR_ra);
+		CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount);
+		CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
+		float radialBinCentimeters = simulations[i].det.dr;
+		CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
+
+		cl_event kernelEvent, reflectanceTransferEvent;
+		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
+		CL(EnqueueReadBuffer, cmdQueue, gpuR_ra, CL_FALSE, 0, reflectanceBufferSize, R_ra, 0, NULL, &reflectanceTransferEvent);
 		CL(Finish, cmdQueue);
+		float totalDiffuseReflectance = 0.0f;
+		for (int j = 0; j < radialBinCount; j++) {
+			for (int k = 0; k < angularBinCount; k++) {
+				float w = R_ra[j * angularBinCount + k] * (1.0f / 4294967296.0f);
+				totalDiffuseReflectance += w;
+			}
+		}
 		if (rank == 0) {
 			cl_ulong timeStart, timeEnd;
-			clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
-			clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);
+			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
+			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);
 			std::cout << "PhotonCount=" << totalThreadCount << std::endl;
-			// std::cout << "Kernel time: " << (timeEnd - timeStart) << " ns\n";
-			std::cout << "ReflectCount=" << reflectCount << std::endl;
-			std::cout << "TransmitCount=" << transmitCount << std::endl;
-			std::cout << "AbsorbCount=" << absorbCount << std::endl;
+			std::cout << "Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
+			std::cout << "totalDiffuseReflectance=" << totalDiffuseReflectance << std::endl;
 		}
-		delete[] layers;
+		free(R_ra);
+		free(layers);
 	}
 	for (int i = 0; i < simCount; i++) {
 		free(simulations[i].layers);
