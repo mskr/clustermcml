@@ -10,12 +10,24 @@
 
 # Currently building 32 bit because MPI dll is only 32 bit
 
-# Runtime
+# Windows runtime
 MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428\include"
 MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt"
 MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428/lib/x86"
 MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x86"
 MSVC_LIB_UM = "C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x86"
+
+# OpenCL
+CL_INCLUDE = "C:\common-lib-amd-APPSDK-3.0-master\3-0\include"
+CL_HEADER = "CL/opencl.h"
+CL_LIBDIR = "C:\common-lib-amd-APPSDK-3.0-master\3-0\lib\x86"
+CL_LIBFILE = "OpenCL.lib"
+
+# MPI
+MPI_INCLUDE = "C:\Program Files (x86)\Microsoft SDKs\MPI\Include"
+MPI_HEADER = "mpi.h"
+MPI_LIBDIR = "C:\Program Files (x86)\Microsoft SDKs\MPI\Lib\x86"
+MPI_LIBFILE = "msmpi.lib"
 
 # Link objects
 clustermcml-windows.exe: main-windows.o runMCML-windows.o
@@ -23,12 +35,11 @@ clustermcml-windows.exe: main-windows.o runMCML-windows.o
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
-		/LIBPATH:"C:\common-lib-amd-APPSDK-3.0-master\3-0\lib\x86" OpenCL.lib \
-		/LIBPATH:"C:\Program Files (x86)\Microsoft SDKs\MPI\Lib\x86" msmpi.lib \
+		/LIBPATH:$(CL_LIBDIR) $(CL_LIBFILE) \
+		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"clustermcml-windows.exe"
 
-
-# Compile new object when source is newer
+# Compile new object
 main-windows.o: main.preprocessed.cpp
 	cl main.preprocessed.cpp /c /Fo"main-windows.o"
 
@@ -37,8 +48,8 @@ main.preprocessed.cpp: main.cpp
 	cl main.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/I"C:\common-lib-amd-APPSDK-3.0-master\3-0\include" /FI"CL/opencl.h" \
-		/I"C:\Program Files (x86)\Microsoft SDKs\MPI\Include" /FI"mpi.h" \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/P /Fi"main.preprocessed.cpp"
 
 # Compile the code that should setup and run the CL kernel
@@ -49,13 +60,37 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
 	cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/I"C:\common-lib-amd-APPSDK-3.0-master\3-0\include" /FI"CL/opencl.h" \
-		/I"C:\Program Files (x86)\Microsoft SDKs\MPI\Include" /FI"mpi.h" \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/P /Fi"runMCML.preprocessed.cpp"
 
-clean:
-	del *-windows.exe *-windows.o *.preprocessed.cpp *.cl.bin.*
 
+######################################################
+# windows, with debug information (e.g for Dr. Memory)
+######################################################
+
+# for debug build, pass this rule explicitly to make
+clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
+	link main-windows-debug.o runMCML-windows-debug.o /DEBUG \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) \
+		/LIBPATH:$(CL_LIBDIR) $(CL_LIBFILE) \
+		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
+		/OUT:"clustermcml-windows-debug.exe"
+
+# Compile new object
+main-windows-debug.o: main.preprocessed.cpp
+	cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
+
+# Compile the code that should setup and run the CL kernel
+runMCML-windows-debug.o: runMCML.preprocessed.cpp
+	cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
+
+
+
+clean:
+	del *.exe *.o *.preprocessed.cpp *.cl.bin.* *.pdb *.ilk
 
 # Interesting stuff about MSVC:
 
@@ -68,3 +103,9 @@ clean:
 # https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
 
 # https://lefticus.gitbooks.io/cpp-best-practices/content/02-Use_the_Tools_Available.html#compilers
+
+# https://stackoverflow.com/questions/4659754/the-gs-g-option-equivalent-to-vs2010-cl-compiler
+
+# https://zeuxcg.org/2010/11/22/z7-everything-old-is-new-again/
+
+# https://randomascii.wordpress.com/2014/03/22/make-vc-compiles-fast-through-parallel-compilation/
