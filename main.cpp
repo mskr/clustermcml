@@ -176,7 +176,18 @@ cl_uint* outdevicecount, char* outdevicenames, cl_uint* outplatformcount, char* 
 		}
 	}
 	// create context using all devices of first platform
-	cl_context_properties context_platform[3] = {CL_CONTEXT_PLATFORM, (cl_context_properties)platforms[0], 0};
+	#ifdef GL_VISUALIZATION
+	HDC gdiContext; HGLRC glContext;
+	gl::createContext(&gdiContext, &glContext);
+	#endif
+	cl_context_properties context_platform[] = {
+		#ifdef GL_VISUALIZATION
+		CL_WGL_HDC_KHR, (cl_context_properties)gdiContext,
+		CL_GL_CONTEXT_KHR, (cl_context_properties)glContext,
+		#endif
+		CL_CONTEXT_PLATFORM, (cl_context_properties)platforms[0], 
+		0
+	};
 	cl_device_id* context_devices = new cl_device_id[num_devices_found];
 	for (int i = 0; i < num_devices_found; i++) {
 		context_devices[i] = devices[i];
@@ -219,8 +230,11 @@ void createCLCommandQueue(cl_context context, cl_device_id device, cl_command_qu
 
 // interfaces for external code
 const char* getCLKernelName();
-void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel,
-	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank, char* kernelOptions, char* otherOptions);
+void allocCLKernelResources(char* kernelOptions, char* otherOptions,
+	size_t* inputBufferCount, size_t* inputBufferSizes,
+	size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount);
+void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
+	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 
 void usage()  {
 	std::cout << "Usage:" << std::endl;
@@ -289,10 +303,41 @@ int main(int nargs, char** args) {
 	cl_uint multiprocessorCount;
 	CL(GetDeviceInfo, devices[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &multiprocessorCount, NULL);
 	size_t totalThreadCount = multiprocessorCount * simdThreadCount;
+
 	char kernelOptions[512];
 	CL(GetProgramBuildInfo, program, devices[0], CL_PROGRAM_BUILD_OPTIONS, 512, kernelOptions, NULL);
 	char* otherOptions = nargs >= 4 ? args[3] : "";
-	runCLKernel(context, cmdQueue1, kernel, totalThreadCount, simdThreadCount, processCount, rank, kernelOptions, otherOptions);
+	size_t inputBufferCount, outputBufferCount;
+	size_t inputBufferSizes[10], outputBufferSizes[10];
+	cl_mem inputBuffers[10], outputBuffers[10];
+	allocCLKernelResources(kernelOptions, otherOptions, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10);
+	// Host buffers were created and sizes reported, now create CL buffers
+	for (int i = 0; i < inputBufferCount; i++) {
+		inputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_ONLY, inputBufferSizes[i], NULL);
+	}
+	for (int i = 0; i < outputBufferCount; i++) {
+		#ifdef GL_VISUALIZATION
+		GLuint glBuf = 0;
+		gl::createBuffer(outputBufferSizes[i], &glBuf);
+		std::cout << glBuf << std::endl;
+		outputBuffers[i] = CLCREATE(FromGLBuffer, context, CL_MEM_READ_WRITE, glBuf);
+		#else
+		outputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, outputBufferSizes[i], NULL);
+		#endif
+	}
+	#ifdef GL_VISUALIZATION
+	glFinish();
+	for (int i = 0; i < outputBufferCount; i++) {
+		CL(EnqueueAcquireGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
+	}
+	#endif
+	runCLKernel(context, cmdQueue1, kernel, inputBuffers, outputBuffers, totalThreadCount, simdThreadCount, processCount, rank);
+	#ifdef GL_VISUALIZATION
+	for (int i = 0; i < outputBufferCount; i++) {
+		CL(EnqueueReleaseGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
+	}
+	gl::runVisualization();
+	#endif
 
 	delete[] src;
 	delete[] devices;

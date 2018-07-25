@@ -4,15 +4,17 @@
 # C:/Program Files (x86)/Microsoft Visual Studio/2017/Enterprise/VC/Tools/MSVC/14.11.25503/bin/Hostx86/x86
 # so that cl, link and nmake are available on the console.
 
-# Set MSVC, MPI and OpenCL paths to your setup!
-
 # Use nmake with this Makefile
 
 # Currently building 32 bit because MPI dll is only 32 bit
 
+# Set the following MSVC, MPI and OpenCL paths to your setup:
+
 # Windows runtime
 MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428\include"
 MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt"
+MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\8.1\Include\um"
+MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\8.1\Include\shared"
 MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428/lib/x86"
 MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x86"
 MSVC_LIB_UM = "C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x86"
@@ -66,10 +68,10 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
 
 
 ######################################################
-# windows, with debug information (e.g for Dr. Memory)
+# Windows, with debug information (e.g for Dr. Memory)
 ######################################################
 
-# for debug build, pass this rule explicitly to make
+# For debug build, pass this rule explicitly to make
 clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
 	link main-windows-debug.o runMCML-windows-debug.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
@@ -78,15 +80,49 @@ clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
 		/LIBPATH:$(CL_LIBDIR) $(CL_LIBFILE) \
 		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"clustermcml-windows-debug.exe"
-
-# Compile new object
+# Compile new object and generate debug database in separate file
 main-windows-debug.o: main.preprocessed.cpp
 	cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
-
-# Compile the code that should setup and run the CL kernel
 runMCML-windows-debug.o: runMCML.preprocessed.cpp
 	cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
 
+
+
+######################################################
+# Windows, with OpenGL (for instant visualization)
+######################################################
+
+clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o glad.o
+	link main-gl-windows.o runMCML-windows.o glad.o \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) "user32.lib" "gdi32.lib" "opengl32.lib" \
+		/LIBPATH:$(CL_LIBDIR) $(CL_LIBFILE) \
+		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
+		/OUT:"clustermcml-gl-windows.exe"
+
+main-gl-windows.o: main-gl-windows.preprocessed.cpp
+	cl main-gl-windows.preprocessed.cpp /c /Fo"main-gl-windows.o"
+
+main-gl-windows.preprocessed.cpp: main.cpp gl-windows.cpp
+	cl main.cpp /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
+		/I$(MSVC_INCLUDE_UM) \
+		/I$(MSVC_INCLUDE_SHARED) \
+		/FI"gl-windows.cpp" \
+		/P /Fi"main-gl-windows.preprocessed.cpp"
+
+# GL loader generated with http://glad.dav1d.de/
+glad.o: glad.c
+	cl glad.c /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(MSVC_INCLUDE_UM) \
+		/I$(MSVC_INCLUDE_SHARED) \
+		/Fo"glad.o"
 
 
 clean:
