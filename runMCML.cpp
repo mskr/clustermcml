@@ -33,7 +33,16 @@ static int simCount = 0;
 static Layer** layersPerSimulation = 0;
 static uint32_t** reflectancePerSimulation = 0;
 
-
+static void freeResources() {
+	for (int i = 0; i < simCount; i++) {
+		free(reflectancePerSimulation[i]);
+		free(layersPerSimulation[i]);
+		free(simulations[i].layers);
+	}
+	free(reflectancePerSimulation);
+	free(layersPerSimulation);
+	free(simulations);
+}
 
 void allocCLKernelResources(char* kernelOptions, char* mcmlOptions,
 size_t* inputBufferCount, size_t* inputBufferSizes,
@@ -77,20 +86,6 @@ size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 		reflectancePerSimulation[i] = R_ra;
 	}
 }
-
-
-void freeResources() {
-	for (int i = 0; i < simCount; i++) {
-		free(reflectancePerSimulation[i]);
-		free(layersPerSimulation[i]);
-		free(simulations[i].layers);
-	}
-	free(reflectancePerSimulation);
-	free(layersPerSimulation);
-	free(simulations);
-}
-
-
 
 //TODO write output file
 //TODO get to run original mcml
@@ -145,6 +140,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			std::cout << "Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 			std::cout << "totalDiffuseReflectance=" << totalDiffuseReflectance << std::endl;
 		}
+
+		CL(ReleaseEvent, kernelEvent); CL(ReleaseEvent, reflectanceTransferEvent);
 	}
 	freeResources();
 }
