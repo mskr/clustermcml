@@ -67,9 +67,9 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
 		/P /Fi"runMCML.preprocessed.cpp"
 
 
-######################################################
-# Windows, with debug information (e.g for Dr. Memory)
-######################################################
+##################################################################################################
+# Windows, with debug information (e.g for Dr. Memory, AMD CodeXL, Nvidia NSight (?), ...)
+##################################################################################################
 
 # For debug build, pass this rule explicitly to make
 clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
@@ -92,8 +92,8 @@ runMCML-windows-debug.o: runMCML.preprocessed.cpp
 # Windows, with OpenGL (for instant visualization)
 ######################################################
 
-clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o glad.o
-	link main-gl-windows.o runMCML-windows.o glad.o \
+clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o gl-windows.o glad.o
+	link main-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) "user32.lib" "gdi32.lib" "opengl32.lib" \
@@ -101,19 +101,26 @@ clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o glad.o
 		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"clustermcml-gl-windows.exe"
 
-main-gl-windows.o: main-gl-windows.preprocessed.cpp
-	cl main-gl-windows.preprocessed.cpp /c /Fo"main-gl-windows.o"
-
-main-gl-windows.preprocessed.cpp: main.cpp gl-windows.cpp
+main-gl-windows.o: main-gl.preprocessed.cpp
+	cl main-gl.preprocessed.cpp /c /Fo"main-gl-windows.o"
+main-gl.preprocessed.cpp: main.cpp
 	cl main.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
 		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
+		/D"GL_VISUALIZATION" \
+		/P /Fi"main-gl.preprocessed.cpp"
+
+gl-windows.o: gl-windows.preprocessed.cpp
+	cl gl-windows.preprocessed.cpp /c /Fo"gl-windows.o"
+gl-windows.preprocessed.cpp: gl-windows.cpp
+	cl gl-windows.cpp /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(MSVC_INCLUDE_UM) \
 		/I$(MSVC_INCLUDE_SHARED) \
-		/FI"gl-windows.cpp" \
-		/P /Fi"main-gl-windows.preprocessed.cpp"
+		/P /Fi"gl-windows.preprocessed.cpp"
 
 # GL loader generated with http://glad.dav1d.de/
 glad.o: glad.c

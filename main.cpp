@@ -15,7 +15,24 @@
 // MPI process id
 static int rank = 0;
 
-void usage();
+// interfaces for external code
+const char* getCLKernelName();
+void allocCLKernelResources(char* kernelOptions, char* otherOptions,
+	size_t* inputBufferCount, size_t* inputBufferSizes,
+	size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount);
+void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
+	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
+void createGLContexts(void* outDeviceContext, void* outRenderContext);
+void createGLBuffer(size_t size, void* outBuffer);
+void runGLRenderLoop();
+
+void usage()  {
+	std::cout << "Usage:" << std::endl;
+	std::cout << "Argument 1: OpenCL kernel file" << std::endl;
+	std::cout << "Argument 2 (optional): OpenCL compiler options" << std::endl;
+	std::cout << "Argument 3 (optional): Options for " << getCLKernelName() << std::endl;
+	MPI_Abort(MPI_COMM_WORLD, 1);
+}
 
 void readCLSourceCode(int nargs, char** args, char** outsrc, size_t* outlen) {
 	if(nargs < 2) usage();
@@ -177,13 +194,13 @@ cl_uint* outdevicecount, char* outdevicenames, cl_uint* outplatformcount, char* 
 	}
 	// create context using all devices of first platform
 	#ifdef GL_VISUALIZATION
-	HDC gdiContext; HGLRC glContext;
-	gl::createContext(&gdiContext, &glContext);
+	cl_context_properties gdiContext, glContext;
+	createGLContexts(&gdiContext, &glContext);
 	#endif
 	cl_context_properties context_platform[] = {
 		#ifdef GL_VISUALIZATION
-		CL_WGL_HDC_KHR, (cl_context_properties)gdiContext,
-		CL_GL_CONTEXT_KHR, (cl_context_properties)glContext,
+		CL_WGL_HDC_KHR, gdiContext,
+		CL_GL_CONTEXT_KHR, glContext,
 		#endif
 		CL_CONTEXT_PLATFORM, (cl_context_properties)platforms[0], 
 		0
@@ -226,22 +243,6 @@ cl_context context, cl_device_id* devices, cl_uint devicecount, cl_program* outp
 void createCLCommandQueue(cl_context context, cl_device_id device, cl_command_queue* outcmdqueue) {
 	cl_command_queue_properties queueProps = CL_QUEUE_PROFILING_ENABLE/* | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE*/;
 	*outcmdqueue = CLCREATE(CommandQueue/*WithProperties*/, context, device, queueProps);
-}
-
-// interfaces for external code
-const char* getCLKernelName();
-void allocCLKernelResources(char* kernelOptions, char* otherOptions,
-	size_t* inputBufferCount, size_t* inputBufferSizes,
-	size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount);
-void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
-	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
-
-void usage()  {
-	std::cout << "Usage:" << std::endl;
-	std::cout << "Argument 1: OpenCL kernel file" << std::endl;
-	std::cout << "Argument 2 (optional): OpenCL compiler options" << std::endl;
-	std::cout << "Argument 3 (optional): Options for " << getCLKernelName() << std::endl;
-	MPI_Abort(MPI_COMM_WORLD, 1);
 }
 
 int main(int nargs, char** args) {
@@ -307,7 +308,7 @@ int main(int nargs, char** args) {
 	char kernelOptions[512];
 	CL(GetProgramBuildInfo, program, devices[0], CL_PROGRAM_BUILD_OPTIONS, 512, kernelOptions, NULL);
 	char* otherOptions = nargs >= 4 ? args[3] : "";
-	size_t inputBufferCount, outputBufferCount;
+	size_t inputBufferCount = 0, outputBufferCount = 0;
 	size_t inputBufferSizes[10], outputBufferSizes[10];
 	cl_mem inputBuffers[10], outputBuffers[10];
 	allocCLKernelResources(kernelOptions, otherOptions, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10);
@@ -317,16 +318,15 @@ int main(int nargs, char** args) {
 	}
 	for (int i = 0; i < outputBufferCount; i++) {
 		#ifdef GL_VISUALIZATION
-		GLuint glBuf = 0;
-		gl::createBuffer(outputBufferSizes[i], &glBuf);
-		std::cout << glBuf << std::endl;
+		unsigned int glBuf = 0;
+		createGLBuffer(outputBufferSizes[i], &glBuf);
 		outputBuffers[i] = CLCREATE(FromGLBuffer, context, CL_MEM_READ_WRITE, glBuf);
 		#else
 		outputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, outputBufferSizes[i], NULL);
 		#endif
 	}
 	#ifdef GL_VISUALIZATION
-	glFinish();
+	// glFinish(); no need to finish gl commands as we havent even started the render loop
 	for (int i = 0; i < outputBufferCount; i++) {
 		CL(EnqueueAcquireGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
 	}
@@ -336,8 +336,19 @@ int main(int nargs, char** args) {
 	for (int i = 0; i < outputBufferCount; i++) {
 		CL(EnqueueReleaseGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
 	}
-	gl::runVisualization();
+	runGLRenderLoop();
 	#endif
+
+	for (int i = 0; i < inputBufferCount; i++) {
+		CL(ReleaseMemObject, inputBuffers[i]);
+	}
+	for (int i = 0; i < outputBufferCount; i++) {
+		CL(ReleaseMemObject, outputBuffers[i]);
+	}
+	CL(ReleaseKernel, kernel);
+	CL(ReleaseProgram, program);
+	CL(ReleaseCommandQueue, cmdQueue1);
+	CL(ReleaseContext, context);
 
 	delete[] src;
 	delete[] devices;
