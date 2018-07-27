@@ -128,10 +128,14 @@ float henyeyGreenstein(float g, float rand) {
 
 #define PI 3.14159265359f
 
-#define MAX_ITERATIONS 10000 //TODO adapt to watchdog timer
+#define MAX_ITERATIONS 100000 //TODO add possibility to stop and continue simulation
+
+//TODO Tests:
+// A) Average step length to first scattering event should equal 1/interactCoeff
+// B) First scattering direction for g==0 should be evenly distributed
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-__global uint* R_ra, int size_r, int size_a, float delta_r) {
+volatile __global uint* R_ra, int size_r, int size_a, float delta_r) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
 	// using Fesnel approximation by Schlick (no incident angle, no polarization)
@@ -181,11 +185,15 @@ __global uint* R_ra, int size_r, int size_a, float delta_r) {
 				layerIndex = otherLayerIndex;
 				if (layerIndex < 0) { // photon escaped at top => record diffuse reflectance
 					float r = length(pos.xy);
+
+					//TODO debug why r is always zero
+
 					int i = (int)floor(r / delta_r);
 					i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
 					float a = transmitAngle / (2.0f * PI) * 360.0f;
 					int j = (int)floor(a / (90.0f / size_a));
-					atomic_add(&R_ra[i * size_a + j], (uint)(photonWeight * 4294967296.0f)); //TODO ulong to prevent overflows
+					atomic_add(&R_ra[0], 4294967296*r);
+					//atomic_add(&R_ra[i * size_a + j], (uint)(photonWeight * 4294967296.0f)); //TODO ulong to prevent overflows
 					break;
 				} else if (layerIndex >= layerCount) {
 					break;
