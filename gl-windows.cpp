@@ -292,7 +292,7 @@ static void runReadPrintLoop() {
 		                    } else if (c == 8) { // backspace
 		                    	if (in.size() > 0) {
 		                    		in.resize(in.size() - 1);
-		                    		std::cout << "[BACKSPACE]" << std::endl << "  " << in;
+		                    		std::cout << std::endl << "  " << in;
 		                    	}
 		                    } else if (c >= 32 && c <= 126) { // printable
 		                    	in += c;
@@ -325,17 +325,20 @@ void createGLContexts(void* outDeviceContext, void* outRenderContext) {
 }
 
 void createGLBuffer(size_t size, void* outBuffer) {
-	static GLuint bindingPoint = 0;
+	static GLuint bindingPoint = 0; // assignemt happens once at program start, then value persists
 
 	std::string bindingPointString = std::to_string(bindingPoint);
 	std::string uniformName = "Buf" + bindingPointString;
 	size_t sizeIn32BitWords = size / 4;
-	glslUniformStrings += "layout(binding=" + bindingPointString + ") uniform " + uniformName
-		+ " {\n  uint buf" + bindingPointString + "[" + std::to_string(sizeIn32BitWords) + "];\n};\n";
+
+	// to access each scalar in array, use std140 memory layout rules and access through vec4
+	// https://www.khronos.org/opengl/wiki/Interface_Block_(GLSL)#Memory_layout
+	glslUniformStrings += "layout(std140, binding=" + bindingPointString + ") uniform " + uniformName
+		+ " {\n  uvec4 buf" + bindingPointString + "[" + std::to_string(sizeIn32BitWords/4) + "];\n};\n";
 	fragmentShaderSource = fragmentShaderSource
 		+ "  int i = int(floor(p.x * " + std::to_string(sizeIn32BitWords) + "));\n"
-		+ "  float f = float(buf" + bindingPointString + "[i]) / 4294967296.;\n"
-			+ "  if(p.y < f) color=vec4(1); else color=vec4(0);\n";
+		+ "  float f = float(buf" + bindingPointString + "[i/4][i%4]) / 4294967296.;\n"
+		+ "  if(p.y < f) color=vec4(1); else color=vec4(0);\n";
 	std::string shaderSource = glslVersionString + glslUniformStrings + fragmentShaderSource;
 	compileGLShader(vertexShaderSource, shaderSource + "}", &vertexShader, &fragmentShader);
 	shaderProgram = glCreateProgram();
