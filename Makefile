@@ -152,3 +152,6 @@ clean:
 # https://zeuxcg.org/2010/11/22/z7-everything-old-is-new-again/
 
 # https://randomascii.wordpress.com/2014/03/22/make-vc-compiles-fast-through-parallel-compilation/
+
+# https://docs.microsoft.com/en-us/windows/desktop/debug/debug-help-library
+# C:\Program Files (x86)\Windows Kits\10\Debuggers
