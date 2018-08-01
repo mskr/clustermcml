@@ -1,6 +1,6 @@
 #include <iostream> // std::cout
 #include <string> // std::string
-#include <stdint.h> // uint32_t
+#include <stdint.h> // uint64_t
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
@@ -31,7 +31,9 @@ const char* getCLKernelName() {
 static SimulationStruct* simulations = 0;
 static int simCount = 0;
 static Layer** layersPerSimulation = 0;
-static uint32_t** reflectancePerSimulation = 0;
+static uint64_t** reflectancePerSimulation = 0;
+
+static char* debugBuffer = 0;
 
 static void freeResources() {
 	for (int i = 0; i < simCount; i++) {
@@ -42,6 +44,9 @@ static void freeResources() {
 	free(reflectancePerSimulation);
 	free(layersPerSimulation);
 	free(simulations);
+	if (debugBuffer) {
+		free(debugBuffer);
+	}
 }
 
 void allocCLKernelResources(char* kernelOptions, char* mcmlOptions,
@@ -49,19 +54,22 @@ size_t* inputBufferCount, size_t* inputBufferSizes,
 size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
 	int ignoreA = std::string(kernelOptions).find("-D IGNORE_A") != std::string::npos ? 1 : 0;
-	std::cout << "--- start reading mcml input file "<<mcmlOptions<<" --->" << std::endl;
+	std::cout << "--- "<<mcmlOptions<<" --->" << std::endl;
 	simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
-	std::cout << "<--- finished reading mcml input file "<<mcmlOptions<<" ---" << std::endl;
+	std::cout << "<--- "<<mcmlOptions<<" ---" << std::endl;
 
 	assert(simCount <= maxBufferCount);
 
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
-	reflectancePerSimulation = (uint32_t**)malloc(simCount * sizeof(uint32_t*));
+	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 
 	*inputBufferCount = simCount;
 	*outputBufferCount = simCount;
 
 	for (int i = 0; i < simCount; i++) {
+
+		assert(simulations[i].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
+
 		int layerCount = simulations[i].n_layers;
 
 		inputBufferSizes[i] = layerCount * sizeof(Layer);
@@ -80,15 +88,23 @@ size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
 		int radialBinCount = simulations[i].det.nr;
 		int angularBinCount = simulations[i].det.na;
-		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint32_t);
+		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		outputBufferSizes[i] = reflectanceBufferSize;
-		uint32_t* R_ra = (uint32_t*)malloc(reflectanceBufferSize);
+		uint64_t* R_ra = (uint64_t*)malloc(reflectanceBufferSize);
 		reflectancePerSimulation[i] = R_ra;
+	}
+
+	int debugMode = std::string(kernelOptions).find("-D DEBUG") != std::string::npos ? 1 : 0;
+	if (debugMode) {
+		debugBuffer = (char*)malloc(2048);
+		outputBufferSizes[(*outputBufferCount)++] = 2048;
 	}
 }
 
+//TODO use 64 bit bins
+//TODO detect transmission and absorption
 //TODO write output file
-//TODO get to run original mcml
+//TODO run original mcml
 //TODO compare reflectance
 //TODO simulate exact number of photons
 
@@ -104,7 +120,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		int radialBinCount = simulations[i].det.nr;
 		float radialBinCentimeters = simulations[i].det.dr;
 		int angularBinCount = simulations[i].det.na;
-		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint32_t);
+		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 
 		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nAbove);
 		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
@@ -114,21 +130,43 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount);
 		CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
 		CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
+		if (debugBuffer) {
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount]);
+		}
 
 		cl_event kernelEvent, reflectanceTransferEvent;
 		CL(EnqueueWriteBuffer, cmdQueue, inputBuffers[i], CL_FALSE, 
 			0, simulations[i].n_layers * sizeof(Layer), layersPerSimulation[i], 0, NULL, NULL);
+		//TODO init accumulation buffers with zeros
 		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[i], CL_FALSE, 
 			0, reflectanceBufferSize, reflectancePerSimulation[i], 0, NULL, &reflectanceTransferEvent);
+		if (debugBuffer) {
+			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
+		}
 		CL(Finish, cmdQueue);
+
+		if (debugBuffer) {
+			int j = 0;
+			for (; debugBuffer[j] >= 32 && debugBuffer[j] <= 126; j++) {
+				std::cout << debugBuffer[j]; // print printable ascii chars
+			}
+			std::cout << std::endl;
+			if (j > 0) {
+				for (int k = 0; k < 3; k++) { // print as floats
+					std::cout << ((float*)debugBuffer)[j+k] << " ";
+				}
+				std::cout << std::endl;
+			}
+		}
 
 		float totalDiffuseReflectance = 0.0f;
 		for (int j = 0; j < radialBinCount; j++) {
 			for (int k = 0; k < angularBinCount; k++) {
-				float w = reflectancePerSimulation[i][j * angularBinCount + k] * (1.0f / 4294967296.0f);
+				uint64_t v = reflectancePerSimulation[i][j * angularBinCount + k];
+				float w = (float)v / 0xFFFFFFFFf;
+				std::cout <<w<< " ";
 				totalDiffuseReflectance += w;
-				std::cout << w << " "; //TODO only first bin has reflectance value
 			}
 		}
 

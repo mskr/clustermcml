@@ -6,6 +6,27 @@
 
 //#include "random.cl" // not portable since this file can end up in temp folder
 
+#define PI 3.14159265359f
+
+// An assert macro that writes error message to host buffer and returns from current function
+//TODO also write values of local variables or dump the whole stack frame
+#ifdef DEBUG
+#define DEBUG_BUFFER_ARG ,__global char* debugBuffer
+#define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x) //The extra level of indirection will allow the preprocessor to expand the macros before they are converted to strings.
+#define assert(expr, t, a, b, c)\
+	if(!(expr)) {\
+		const __constant char* msg = "assertion failed at line " STR(__LINE__);\
+		int i=0; for(; msg[i]!='\0';i++) debugBuffer[i]=msg[i];\
+		((__global t*)debugBuffer)[i] = a; ((__global t*)debugBuffer)[i+1] = b; ((__global t*)debugBuffer)[i+2] = c;\
+		return;\
+	}
+#else
+#define DEBUG_BUFFER_ARG
+#define assert(expr, t, a, b, c)
+#endif
+
 // Following Nathan Reed's article:
 // http://reedbeta.com/blog/quick-and-easy-gpu-random-numbers-in-d3d11/
 // PRNGs are designed to go deep, i.e. have good distributions when sequentially updating state
@@ -43,6 +64,10 @@ uint wang_hash(uint seed) {
 
 // Mersenne Twister
 // https://us.fixstars.com/opencl/book/OpenCLProgrammingBook/mersenne-twister/
+
+// Multiply With Carry
+// https://www.ast.cam.ac.uk/~stg20/cuda/random/index.html
+// used by CUDAMCML, they also have versions for [0,1) and (0,1]
 
 // Function to integrate by simpson kernel
 float simpson_f(float x) {
@@ -126,16 +151,24 @@ float henyeyGreenstein(float g, float rand) {
 	}
 }
 
-#define PI 3.14159265359f
-
 #define MAX_ITERATIONS 100000 //TODO add possibility to stop and continue simulation
 
 //TODO Tests:
 // A) Average step length to first scattering event should equal 1/interactCoeff
 // B) First scattering direction for g==0 should be evenly distributed
 
+void add(volatile __global ulong* dst64, uint src32) {
+	// Add 32 bit unsigned integer to 64 bit unsigned integer
+	// First try to add to least significant half
+	// If there was an overflow, add 1 to most significant half
+	if (atomic_add((volatile __global uint*)dst64, src32) + src32 < src32) {
+		atomic_add(((volatile __global uint*)dst64) + 1, 1u);
+	}
+}
+
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-volatile __global uint* R_ra, int size_r, int size_a, float delta_r) {
+volatile __global ulong* R_ra, int size_r, int size_a, float delta_r
+DEBUG_BUFFER_ARG) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
 	// using Fesnel approximation by Schlick (no incident angle, no polarization)
@@ -143,6 +176,7 @@ volatile __global uint* R_ra, int size_r, int size_a, float delta_r) {
 	float R_specular = pow((nAbove - layers[0].n), 2) / pow((nAbove + layers[0].n), 2);
 	// Q: why are the ^2 different than in Fesnel?
 	// Q: is diffuse reflectance given by photons escaping at top after simulation?
+	assert(R_specular < 1.0f, float, R_specular, 0, 0);
 	float photonWeight = 1.0f - R_specular;
 	uint rng_state = wang_hash(get_global_id(0));
 	float3 pos = (float3)(0.0f, 0.0f, 1.0f);
@@ -153,7 +187,7 @@ volatile __global uint* R_ra, int size_r, int size_a, float delta_r) {
 		float interactCoeff = currentLayer->absorbCoeff + currentLayer->scatterCoeff;
 		// randomize step length
 		rng_state = rand_xorshift(rng_state);
-		float rand = (float)rng_state * (1.0f / 4294967296.0f);
+		float rand = (float)rng_state * (1.0f / 4294967296.0f); // rng_state can be max 0xFFFFFFFF=4294967295, i.e. rand in [0,1)
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
 		// test layer interaction by intersection
 		__global struct Boundary* intersectedBoundary = 0;
@@ -185,15 +219,11 @@ volatile __global uint* R_ra, int size_r, int size_a, float delta_r) {
 				layerIndex = otherLayerIndex;
 				if (layerIndex < 0) { // photon escaped at top => record diffuse reflectance
 					float r = length(pos.xy);
-
-					//TODO debug why r is always zero
-
 					int i = (int)floor(r / delta_r);
 					i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
 					float a = transmitAngle / (2.0f * PI) * 360.0f;
 					int j = (int)floor(a / (90.0f / size_a));
-					atomic_add(&R_ra[0], 4294967296*r);
-					//atomic_add(&R_ra[i * size_a + j], (uint)(photonWeight * 4294967296.0f)); //TODO ulong to prevent overflows
+					add(&R_ra[i * size_a + j], (uint)(photonWeight * 0xFFFFFFFF));
 					break;
 				} else if (layerIndex >= layerCount) {
 					break;
@@ -223,10 +253,20 @@ volatile __global uint* R_ra, int size_r, int size_a, float delta_r) {
 			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * (1.0f / 4294967296.0f);
 			float psi = 2 * PI * rand;
-			dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
-			dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
-			dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
-			// Q: why different formula for dir close to normal?
+			if (fabs(dir.z) > 0.99999) {
+				// when photon travels nearly parallel to boundary normals
+				// the regular coordinate transform would set x and y direction always to (nearly) zero
+				// Q: what is the physical meaning of this special case?
+				dir.x = sin(theta) * cos(psi);
+				dir.y = sin(theta) * sin(psi);
+				dir.z = sign(dir.z) * cos(theta);
+			} else {
+				dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
+				dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
+				dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
+			}
+			dir = normalize(dir); //TODO should not be necessary
+			assert(fabs(1.0f - length(dir)) < 0.01f, float, pos.x + dir.x * s, pos.y+dir.y*s, dir.z);
 		}
 	}
 }
