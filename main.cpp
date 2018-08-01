@@ -234,6 +234,7 @@ cl_context context, cl_device_id* devices, cl_uint devicecount, cl_program* outp
 		CL(GetProgramBuildInfo, program, devices[i], CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
 		if (status == CL_BUILD_ERROR) {
 			CL(GetProgramBuildInfo, program, devices[i], CL_PROGRAM_BUILD_LOG, memc, outerr, NULL);
+			outerr[0] = 'E';
 			break;
 		}
 	}
