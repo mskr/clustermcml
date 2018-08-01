@@ -118,7 +118,8 @@ int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreA
 	return 0;
 }
 
-int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t simulation_time)
+int Write_Simulation_Results(unsigned long long* A_rz, unsigned long long* Tt_ra, unsigned long long* Rd_ra,
+SimulationStruct* sim, clock_t simulation_time)
 {
 	FILE* pFile_inp;
 	FILE* pFile_outp;
@@ -191,8 +192,8 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 	unsigned long long T=0;		// Transmittance [-]
 
 	Rs = (unsigned long long)(0xFFFFFFFFu-sim->start_weight)*(unsigned long long)sim->number_of_photons;
-	for(i=0;i<rz_size;i++)A+= HostMem->A_rz[i];
-	for(i=0;i<ra_size;i++){T += HostMem->Tt_ra[i];Rd += HostMem->Rd_ra[i];}
+	for(i=0;i<rz_size;i++)A+= A_rz[i];
+	for(i=0;i<ra_size;i++){T += Tt_ra[i];Rd += Rd_ra[i];}
 
 	fprintf(pFile_outp,"\nRAT #Reflectance, absorption transmission\n");
 	fprintf(pFile_outp,"%G \t\t #Specular reflectance [-]\n",(double)Rs/scale1);
@@ -209,7 +210,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 		temp=0;
 		while(((double)z+0.5)*dz<=sim->layers[l].z_max)
 		{
-			for(r=0;r<nr;r++) temp+=HostMem->A_rz[z*nr+r];
+			for(r=0;r<nr;r++) temp+=A_rz[z*nr+r];
 			z++;
 			if(z==nz)break;
 		}
@@ -222,7 +223,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 	for(z=0;z<nz;z++)
 	{
 		temp=0;
-		for(r=0;r<nr;r++) temp+=HostMem->A_rz[z*nr+r]; 
+		for(r=0;r<nr;r++) temp+=A_rz[z*nr+r]; 
 		fprintf(pFile_outp,"%E\n",(double)temp/scale2);
 	}
 
@@ -231,7 +232,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 	for(r=0;r<nr;r++)
 	{
 		temp=0;
-		for(a=0;a<na;a++) temp+=HostMem->Rd_ra[a*nr+r]; 
+		for(a=0;a<na;a++) temp+=Rd_ra[a*nr+r]; 
 		scale2=scale1*2*PI*(r+0.5)*dr*dr;
 		fprintf(pFile_outp,"%E\n",(double)temp/scale2);
 	}
@@ -241,7 +242,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 	for(a=0;a<na;a++)
 	{
 		temp=0;
-		for(r=0;r<nr;r++) temp+=HostMem->Rd_ra[a*nr+r]; 
+		for(r=0;r<nr;r++) temp+=Rd_ra[a*nr+r]; 
 		scale2=scale1*4*PI*sin((a+0.5)*da)*sin(da/2);
 		fprintf(pFile_outp,"%E\n",(double)temp/scale2);
 	}
@@ -251,7 +252,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 	for(r=0;r<nr;r++)
 	{
 		temp=0;
-		for(a=0;a<na;a++) temp+=HostMem->Tt_ra[a*nr+r];
+		for(a=0;a<na;a++) temp+=Tt_ra[a*nr+r];
 		scale2=scale1*2*PI*(r+0.5)*dr*dr;
 		fprintf(pFile_outp,"%E\n",(double)temp/scale2);
 	}
@@ -261,7 +262,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 	for(a=0;a<na;a++)
 	{
 		temp=0;
-		for(r=0;r<nr;r++) temp+=HostMem->Tt_ra[a*nr+r]; 
+		for(r=0;r<nr;r++) temp+=Tt_ra[a*nr+r]; 
 		scale2=scale1*4*PI*sin((a+0.5)*da)*sin(da/2);
 		fprintf(pFile_outp,"%E\n",(double)temp/scale2);
 	}
@@ -275,7 +276,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 		for(z=0;z<nz;z++)
 		{
 			scale2=scale1*2*PI*(r+0.5)*dr*dr*dz;
-			fprintf(pFile_outp," %E ",(double)HostMem->A_rz[z*nr+r]/scale2);
+			fprintf(pFile_outp," %E ",(double)A_rz[z*nr+r]/scale2);
 			if((i++)==4){i=0;fprintf(pFile_outp,"\n");}
 		}
 	}
@@ -288,7 +289,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 		for(a=0;a<na;a++)
 		{
 			scale2=scale1*2*PI*(r+0.5)*dr*dr*cos((a+0.5)*da)*4*PI*sin((a+0.5)*da)*sin(da/2);
-			fprintf(pFile_outp," %E ",(double)HostMem->Rd_ra[a*nr+r]/scale2);
+			fprintf(pFile_outp," %E ",(double)Rd_ra[a*nr+r]/scale2);
 			if((i++)==4){i=0;fprintf(pFile_outp,"\n");}
 		}
 	}
@@ -301,7 +302,7 @@ int Write_Simulation_Results(MemStruct* HostMem, SimulationStruct* sim, clock_t 
 		for(a=0;a<na;a++)
 		{
 			scale2=scale1*2*PI*(r+0.5)*dr*dr*cos((a+0.5)*da)*4*PI*sin((a+0.5)*da)*sin(da/2);
-			fprintf(pFile_outp," %E ",(double)HostMem->Tt_ra[a*nr+r]/scale2);
+			fprintf(pFile_outp," %E ",(double)Tt_ra[a*nr+r]/scale2);
 			if((i++)==4){i=0;fprintf(pFile_outp,"\n");}
 		}
 	}
