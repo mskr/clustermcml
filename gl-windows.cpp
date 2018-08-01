@@ -29,7 +29,11 @@ static std::string vertexShaderSource =
 static const std::string glslVersionString = "#version 430\n";
 static std::string glslUniformStrings = "";
 static std::string fragmentShaderSource =
-	"in vec2 p;\nout vec4 color;\nvoid main() {\n  color = vec4(p, 0, 1);\n";
+"in vec2 p;\n\
+out vec4 color;\n\
+int i; float f;\n\
+void main() {\n\
+  color = vec4(p, 0, 1);\n";
 static std::string fragmentShaderSourceTmp;
 
 static bool running = true;
@@ -336,8 +340,8 @@ void createGLBuffer(size_t size, void* outBuffer) {
 	glslUniformStrings += "layout(std140, binding=" + bindingPointString + ") uniform " + uniformName
 		+ " {\n  uvec4 buf" + bindingPointString + "[" + std::to_string(sizeIn32BitWords/4) + "];\n};\n";
 	fragmentShaderSource = fragmentShaderSource
-		+ "  int i = int(floor(p.x * " + std::to_string(sizeIn32BitWords) + "));\n"
-		+ "  float f = float(buf" + bindingPointString + "[i/4][i%4]) / 4294967296.;\n"
+		+ "  i = int(floor(p.x * " + std::to_string(sizeIn32BitWords) + "));\n"
+		+ "  f = float(buf" + bindingPointString + "[i/4][i%4]) / 4294967296.;\n"
 		+ "  if(p.y < f) color=vec4(1); else color=vec4(0);\n";
 	std::string shaderSource = glslVersionString + glslUniformStrings + fragmentShaderSource;
 	compileGLShader(vertexShaderSource, shaderSource + "}", &vertexShader, &fragmentShader);
