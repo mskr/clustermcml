@@ -160,7 +160,7 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
-#define MAX_ITERATIONS 10000
+#define MAX_ITERATIONS 100000
 //TODO add possibility to stop and continue simulation
 /*
 typedef struct 
@@ -174,10 +174,6 @@ typedef struct
 	unsigned int weight;			// Photon weight
 	int layer;				// Current layer
 }PhotonStruct;*/
-
-//TODO Tests:
-// A) Average step length to first scattering event should equal 1/interactCoeff
-// B) First scattering direction for g==0 should be evenly distributed
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, float delta_r, 
@@ -193,7 +189,7 @@ DEBUG_BUFFER_ARG) {
 	assert(R_specular < 1.0f, float, R_specular, 0, 0);
 	float photonWeight = 1.0f - R_specular;
 	uint rng_state = wang_hash(get_global_id(0));
-	float3 pos = (float3)(0.0f, 0.0f, 1.0f);
+	float3 pos = (float3)(0.0f, 0.0f, 0.0f);
 	float3 dir = (float3)(0.0f, 0.0f, 1.0f);
 	int layerIndex = 0;
 	int iteration = 0;
@@ -223,6 +219,7 @@ DEBUG_BUFFER_ARG) {
 		}
 		if (intersectionFound) {
 			pos += dir * pathLenToIntersection; // unfinished part of s can be ignored
+			//TODO drop some weight here?
 			// decide transmit or reflect
 			float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
 			float cosIncident = dot(normal, -dir);
