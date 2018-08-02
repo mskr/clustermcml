@@ -160,7 +160,7 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
-#define MAX_ITERATIONS 100000
+#define MAX_ITERATIONS 10000
 //TODO add possibility to stop and continue simulation
 /*
 typedef struct 
@@ -204,24 +204,24 @@ DEBUG_BUFFER_ARG) {
 		rng_state = rand_xorshift(rng_state);
 		float rand = (float)rng_state * (1.0f / 4294967296.0f); // rng_state can be max 0xFFFFFFFF=4294967295 => rand in [0,1)
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
-		//if (get_global_id(0) < 512) ((__global uint*)debugBuffer)[get_global_id(0)] = (uint)(s * interactCoeff * exp(-interactCoeff*s) * 0xFFFFFFFF);
-		//if (get_global_id(0) < 512) ((__global uint*)debugBuffer)[get_global_id(0)] = (uint)(s * 0xFFFFFFFF);
-		//return;
 		// test layer interaction by intersection
+		bool intersectionFound = false;
 		__global struct Boundary* intersectedBoundary = 0;
 		int otherLayerIndex = 0;
 		float otherN = 0;
 		float pathLenToIntersection = intersect(pos, dir, currentLayer->top);
 		if (pathLenToIntersection >= 0 && pathLenToIntersection <= s) {
+			intersectionFound = true;
 			intersectedBoundary = &currentLayer->top;
 			otherLayerIndex = layerIndex - 1;
 			otherN = otherLayerIndex < 0 ? nAbove : layers[otherLayerIndex].n;
 		} else if ((pathLenToIntersection = intersect(pos, dir, currentLayer->bottom)) >= 0 && pathLenToIntersection <= s) {
+			intersectionFound = true;
 			intersectedBoundary = &currentLayer->bottom;
 			otherLayerIndex = layerIndex + 1;
 			otherN = otherLayerIndex >= layerCount ? nBelow : layers[otherLayerIndex].n;
 		}
-		if (intersectedBoundary) {
+		if (intersectionFound) {
 			pos += dir * pathLenToIntersection; // unfinished part of s can be ignored
 			// decide transmit or reflect
 			float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
@@ -266,11 +266,8 @@ DEBUG_BUFFER_ARG) {
 			// spin
 			rng_state = rand_xorshift(rng_state);
 			float rand = (float)rng_state * (1.0f / 4294967296.0f);
-			float cosTheta = henyeyGreenstein(currentLayer->g, rand);
-			float theta = acos(cosTheta);
-				uint i = (uint)floor(theta/PI * 512.0f);
-				atomic_add(&((__global uint*)debugBuffer)[i], 1000u);
-				
+			float cosTheta = henyeyGreenstein(currentLayer->g, rand); // for g==0 cosTheta is evenly distributed
+			float theta = acos(cosTheta); // for g==0 theta has most values at pi/2, which is correct
 			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * (1.0f / 4294967296.0f);
 			float psi = 2 * PI * rand;
@@ -287,10 +284,8 @@ DEBUG_BUFFER_ARG) {
 				dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
 			}
 			dir = normalize(dir); // necessary when using floats
-			assert(fabs(1.0f - length(dir)) < 0.01f, float, pos.x + dir.x * s, pos.y+dir.y*s, dir.z);
 		}
 	}
-	assert(iteration != MAX_ITERATIONS, float, (float)iteration, 0, 0);
 }
 
 // Basic monte carlo photon transport walkthrough
