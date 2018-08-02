@@ -210,9 +210,8 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 	return false;
 }
 
-bool transmit(float3 pos, float transmitAngle, float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
+bool transmit(float3 pos, float3* dir, float transmitAngle, float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
-	//TODO update direction
 	*currentLayer = otherLayer;
 	if (*currentLayer < 0) { // photon escaped at top => record diffuse reflectance
 		float r = length(pos.xy);
@@ -227,6 +226,7 @@ int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
 		*photonWeight = 0;
 		return true;
 	}
+	//TODO update direction
 	return false;
 }
 
@@ -272,7 +272,7 @@ DEBUG_BUFFER_ARG)
 			if (rand <= fresnelR) {
 				reflect(&dir, normal);
 			} else {
-				if (transmit(pos, transmitAngle, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) break;
+				if (transmit(pos, &dir, transmitAngle, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) break;
 			}
 		} else { // absorb and scatter
 			pos += dir * s; // hop

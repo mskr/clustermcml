@@ -148,6 +148,7 @@ static bool handleDebugOutput() {
 	}
 	if (isError) {
 		std::cout << std::endl;
+		//TODO print everything as hex view until reaching some unique end symbol
 		for (int k = 0; k < 3; k++) { // print as floats
 			std::cout << ((float*)debugBuffer)[j+k] << " ";
 		}
@@ -233,7 +234,13 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			}
 			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
 				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
+			if (debugBuffer) {
+				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
+			}
 			CL(Finish, cmdQueue);
+			if (debugBuffer) {
+				assert(!handleDebugOutput());
+			}
 			for (int i = 0; i < totalThreadCount; i++) {
 				if (photonStatesPerSimulation[simIndex][i].weight == 0) {
 					finishedPhotonCount++;
@@ -250,14 +257,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 
 		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, &reflectanceTransferEvent);
-		if (debugBuffer) {
-			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
-		}
 		CL(Finish, cmdQueue);
-
-		if (debugBuffer) {
-			if (handleDebugOutput()) return;
-		}
 
 		if (rank == 0) {
 			cl_ulong timeStart, timeEnd;
