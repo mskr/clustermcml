@@ -167,6 +167,73 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
+float3 spin(float3 dir, float theta, float psi) {
+	if (fabs(dir.z) > 0.99999) {
+		// when photon travels straight down the z axis
+		// the regular coordinate transform would set x and y direction to (nearly) zero
+		dir.x = sin(theta) * cos(psi);
+		dir.y = sin(theta) * sin(psi);
+		dir.z = sign(dir.z) * cos(theta);
+	} else {
+		// spherical to cartesian coordinates
+		dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
+		dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
+		dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
+	}
+	return dir;
+}
+
+bool roulette(uint* rng_state, float* photonWeight) {
+	*rng_state = rand_xorshift(*rng_state);
+	float rand = (float)(*rng_state) * (1.0f / 4294967296.0f);
+	if (rand <= 1.0f/10.0f) {
+		*photonWeight *= 10.0f;
+	} else {
+		*photonWeight = 0;
+		return true;
+	}
+	return false;
+}
+
+bool findIntersection(float3 pos, float3 dir, float s, __global struct Layer* layers, int currentLayer,
+__global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection) {
+	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].top)) >= 0 && *pathLenToIntersection <= s) {
+		*intersectedBoundary = &layers[currentLayer].top;
+		*otherLayer = currentLayer - 1;
+		return true;
+	}
+	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].bottom)) >= 0 && *pathLenToIntersection <= s) {
+		*intersectedBoundary = &layers[currentLayer].bottom;
+		*otherLayer = currentLayer + 1;
+		return true;
+	}
+	return false;
+}
+
+bool transmit(float3 pos, float transmitAngle, float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
+int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
+	//TODO update direction
+	*currentLayer = otherLayer;
+	if (*currentLayer < 0) { // photon escaped at top => record diffuse reflectance
+		float r = length(pos.xy);
+		int i = (int)floor(r / delta_r);
+		i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+		float a = transmitAngle / (2.0f * PI) * 360.0f;
+		int j = (int)floor(a / (90.0f / size_a));
+		add(&R_ra[i * size_a + j], (uint)(*photonWeight * 0xFFFFFFFF));
+		*photonWeight = 0;
+		return true;
+	} else if (*currentLayer >= layerCount) {
+		*photonWeight = 0;
+		return true;
+	}
+	return false;
+}
+
+void reflect(float3* dir, float3 normal) {
+	*dir += normal * dot(normal, *dir) * 2.0f; // mirror dir vector against boundary plane
+}
+
 #define MAX_ITERATIONS 1000
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
@@ -180,103 +247,55 @@ DEBUG_BUFFER_ARG)
 	float photonWeight = state->weight;
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
-	int layerIndex = state->layerIndex;
+	int currentLayer = state->layerIndex;
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-		__global struct Layer* currentLayer = &layers[layerIndex];
-		float interactCoeff = currentLayer->absorbCoeff + currentLayer->scatterCoeff;
+		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
 		rng_state = rand_xorshift(rng_state);
 		float rand = (float)rng_state * (1.0f / 4294967296.0f); // rng_state can be max 0xFFFFFFFF=4294967295 => rand in [0,1)
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
-		// test layer interaction by intersection
-		bool intersectionFound = false;
-		__global struct Boundary* intersectedBoundary = 0;
-		int otherLayerIndex = 0;
-		float otherN = 0;
-		float pathLenToIntersection = intersect(pos, dir, currentLayer->top);
-		if (pathLenToIntersection >= 0 && pathLenToIntersection <= s) {
-			intersectionFound = true;
-			intersectedBoundary = &currentLayer->top;
-			otherLayerIndex = layerIndex - 1;
-			otherN = otherLayerIndex < 0 ? nAbove : layers[otherLayerIndex].n;
-		} else if ((pathLenToIntersection = intersect(pos, dir, currentLayer->bottom)) >= 0 && pathLenToIntersection <= s) {
-			intersectionFound = true;
-			intersectedBoundary = &currentLayer->bottom;
-			otherLayerIndex = layerIndex + 1;
-			otherN = otherLayerIndex >= layerCount ? nBelow : layers[otherLayerIndex].n;
-		}
-		if (intersectionFound) {
+		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0;
+		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection)) {
 			pos += dir * pathLenToIntersection; // unfinished part of s can be ignored
 			//TODO drop some weight here?
 			// decide transmit or reflect
+			float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 			float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
+			assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
 			float cosIncident = dot(normal, -dir);
 			float incidentAngle = acos(cosIncident);
-			float sinTransmit = currentLayer->n * sin(incidentAngle) / otherN; // Snell's law
+			float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
 			float transmitAngle = asin(sinTransmit);
 			float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
 			rng_state = rand_xorshift(rng_state);
 			float rand = (float)rng_state * (1.0f / 4294967296.0f);
-			bool reflect = rand <= fresnelR;
-			if (!reflect) {
-				layerIndex = otherLayerIndex;
-				if (layerIndex < 0) { // photon escaped at top => record diffuse reflectance
-					float r = length(pos.xy);
-					int i = (int)floor(r / delta_r);
-					i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
-					float a = transmitAngle / (2.0f * PI) * 360.0f;
-					int j = (int)floor(a / (90.0f / size_a));
-					add(&R_ra[i * size_a + j], (uint)(photonWeight * 0xFFFFFFFF));
-					photonWeight = 0;
-					break;
-				} else if (layerIndex >= layerCount) {
-					photonWeight = 0;
-					break;
-				}
+			if (rand <= fresnelR) {
+				reflect(&dir, normal);
 			} else {
-				dir += normal * dot(normal, dir) * 2.0f; // mirror dir vector against boundary plane
+				if (transmit(pos, transmitAngle, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) break;
 			}
 		} else { // absorb and scatter
 			pos += dir * s; // hop
-			photonWeight -= photonWeight * currentLayer->absorbCoeff / interactCoeff; // drop
+			photonWeight -= photonWeight * layers[currentLayer].absorbCoeff / interactCoeff; // drop
 			if (photonWeight < 0.0001f) {
-				// roulette
-				rng_state = rand_xorshift(rng_state);
-				float rand = (float)rng_state * (1.0f / 4294967296.0f);
-				if (rand <= 1.0f/10.0f) {
-					photonWeight *= 10.0f;
-				} else {
-					photonWeight = 0;
-					break;
-				}
+				if (roulette(&rng_state, &photonWeight)) break;
 			}
 			// spin
 			rng_state = rand_xorshift(rng_state);
 			float rand = (float)rng_state * (1.0f / 4294967296.0f);
-			float cosTheta = sampleHenyeyGreenstein(currentLayer->g, rand); // for g==0 cosTheta is evenly distributed
+			float cosTheta = sampleHenyeyGreenstein(layers[currentLayer].g, rand); // for g==0 cosTheta is evenly distributed
 			float theta = acos(cosTheta); // for g==0 theta has most values at pi/2, which is correct
 			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * (1.0f / 4294967296.0f);
 			float psi = 2 * PI * rand;
-			if (fabs(dir.z) > 0.99999) {
-				// when photon travels straight down the z axis
-				// the regular coordinate transform would set x and y direction to (nearly) zero
-				dir.x = sin(theta) * cos(psi);
-				dir.y = sin(theta) * sin(psi);
-				dir.z = sign(dir.z) * cos(theta);
-			} else {
-				// spherical to cartesian coordinates
-				dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
-				dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
-				dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
-			}
+			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // necessary wrt precision problems of float
 		}
 	}
 	state->x = pos.x; state->y = pos.y; state->z = pos.z;
 	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
 	state->weight = photonWeight;
-	state->layerIndex = layerIndex;
+	state->layerIndex = currentLayer;
 }
 
 // Basic monte carlo photon transport walkthrough
