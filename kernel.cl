@@ -17,7 +17,7 @@
 #define STR(x) STR_HELPER(x) //The extra level of indirection will allow the preprocessor to expand the macros before they are converted to strings.
 #define assert(expr, t, a, b, c)\
 	if(!(expr)) {\
-		const __constant char* msg = "assertion failed at line " STR(__LINE__);\
+		const __constant char* msg = "error: assertion failed at line " STR(__LINE__);\
 		int i=0; for(; msg[i]!='\0';i++) debugBuffer[i]=msg[i];\
 		((__global t*)debugBuffer)[i] = a; ((__global t*)debugBuffer)[i+1] = b; ((__global t*)debugBuffer)[i+2] = c;\
 		return;\
@@ -151,14 +151,8 @@ float henyeyGreenstein(float g, float rand) {
 	}
 }
 
-#define MAX_ITERATIONS 100000 //TODO add possibility to stop and continue simulation
-
-//TODO Tests:
-// A) Average step length to first scattering event should equal 1/interactCoeff
-// B) First scattering direction for g==0 should be evenly distributed
-
 void add(volatile __global ulong* dst64, uint src32) {
-	// Add 32 bit unsigned integer to 64 bit unsigned integer
+	// Add 32 bit unsigned integer to 64 bit unsigned integer, atomically
 	// First try to add to least significant half
 	// If there was an overflow, add 1 to most significant half
 	if (atomic_add((volatile __global uint*)dst64, src32) + src32 < src32) {
@@ -166,8 +160,28 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
+#define MAX_ITERATIONS 100000
+//TODO add possibility to stop and continue simulation
+/*
+typedef struct 
+{
+	float x;		// Global x coordinate [cm]
+	float y;		// Global y coordinate [cm]
+	float z;		// Global z coordinate [cm]
+	float dx;		// (Global, normalized) x-direction
+	float dy;		// (Global, normalized) y-direction
+	float dz;		// (Global, normalized) z-direction
+	unsigned int weight;			// Photon weight
+	int layer;				// Current layer
+}PhotonStruct;*/
+
+//TODO Tests:
+// A) Average step length to first scattering event should equal 1/interactCoeff
+// B) First scattering direction for g==0 should be evenly distributed
+
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-volatile __global ulong* R_ra, int size_r, int size_a, float delta_r
+int size_r, int size_a, float delta_r, 
+volatile __global ulong* R_ra
 DEBUG_BUFFER_ARG) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
@@ -182,13 +196,17 @@ DEBUG_BUFFER_ARG) {
 	float3 pos = (float3)(0.0f, 0.0f, 1.0f);
 	float3 dir = (float3)(0.0f, 0.0f, 1.0f);
 	int layerIndex = 0;
-	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+	int iteration = 0;
+	for (; iteration < MAX_ITERATIONS; iteration++) {
 		__global struct Layer* currentLayer = &layers[layerIndex];
 		float interactCoeff = currentLayer->absorbCoeff + currentLayer->scatterCoeff;
 		// randomize step length
 		rng_state = rand_xorshift(rng_state);
-		float rand = (float)rng_state * (1.0f / 4294967296.0f); // rng_state can be max 0xFFFFFFFF=4294967295, i.e. rand in [0,1)
+		float rand = (float)rng_state * (1.0f / 4294967296.0f); // rng_state can be max 0xFFFFFFFF=4294967295 => rand in [0,1)
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
+		//if (get_global_id(0) < 512) ((__global uint*)debugBuffer)[get_global_id(0)] = (uint)(s * interactCoeff * exp(-interactCoeff*s) * 0xFFFFFFFF);
+		//if (get_global_id(0) < 512) ((__global uint*)debugBuffer)[get_global_id(0)] = (uint)(s * 0xFFFFFFFF);
+		//return;
 		// test layer interaction by intersection
 		__global struct Boundary* intersectedBoundary = 0;
 		int otherLayerIndex = 0;
@@ -250,25 +268,29 @@ DEBUG_BUFFER_ARG) {
 			float rand = (float)rng_state * (1.0f / 4294967296.0f);
 			float cosTheta = henyeyGreenstein(currentLayer->g, rand);
 			float theta = acos(cosTheta);
+				uint i = (uint)floor(theta/PI * 512.0f);
+				atomic_add(&((__global uint*)debugBuffer)[i], 1000u);
+				
 			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * (1.0f / 4294967296.0f);
 			float psi = 2 * PI * rand;
 			if (fabs(dir.z) > 0.99999) {
-				// when photon travels nearly parallel to boundary normals
-				// the regular coordinate transform would set x and y direction always to (nearly) zero
-				// Q: what is the physical meaning of this special case?
+				// when photon travels straight down the z axis
+				// the regular coordinate transform would set x and y direction to (nearly) zero
 				dir.x = sin(theta) * cos(psi);
 				dir.y = sin(theta) * sin(psi);
 				dir.z = sign(dir.z) * cos(theta);
 			} else {
+				// spherical to cartesian coordinates
 				dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
 				dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
 				dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
 			}
-			dir = normalize(dir); //TODO should not be necessary
+			dir = normalize(dir); // necessary when using floats
 			assert(fabs(1.0f - length(dir)) < 0.01f, float, pos.x + dir.x * s, pos.y+dir.y*s, dir.z);
 		}
 	}
+	assert(iteration != MAX_ITERATIONS, float, (float)iteration, 0, 0);
 }
 
 // Basic monte carlo photon transport walkthrough
