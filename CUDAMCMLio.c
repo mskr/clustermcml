@@ -41,18 +41,6 @@ typedef struct
 
 typedef struct 
 {
-	float x;		// Global x coordinate [cm]
-	float y;		// Global y coordinate [cm]
-	float z;		// Global z coordinate [cm]
-	float dx;		// (Global, normalized) x-direction
-	float dy;		// (Global, normalized) y-direction
-	float dz;		// (Global, normalized) z-direction
-	unsigned int weight;			// Photon weight
-	int layer;				// Current layer
-}PhotonStruct;
-
-typedef struct 
-{
 	float dr;		// Detection grid resolution, r-direction [cm]
 	float dz;		// Detection grid resolution, z-direction [cm]
 	
@@ -76,20 +64,6 @@ typedef struct
 	DetStruct det;
 	LayerStruct* layers;
 }SimulationStruct;
-
-
-typedef struct
-{
-	PhotonStruct* p;					// Pointer to structure array containing all the photon data
-	unsigned long long* x;				// Pointer to the array containing all the WMC x's
-	unsigned int* a;					// Pointer to the array containing all the WMC a's
-	unsigned int* thread_active;		// Pointer to the array containing the thread active status
-	unsigned int* num_terminated_photons;	//Pointer to a scalar keeping track of the number of terminated photons
-
-	unsigned long long* Rd_ra;
-	unsigned long long* A_rz;			// Pointer to the 2D detection matrix!
-	unsigned long long* Tt_ra;
-}MemStruct;
 
 int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
 {
