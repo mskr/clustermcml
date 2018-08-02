@@ -130,6 +130,13 @@ struct Layer {
 	struct Boundary bottom;
 };
 
+struct PhotonState {
+	float x, y, z; // pos [cm]
+	float dx, dy, dz; // dir
+	float weight; // 1 at start, zero when terminated
+	int layerIndex; // current layer
+};
+
 float intersect(float3 pos, float3 dir, struct Boundary bound) {
 	// find ray-plane intersection point
 	// if found return path length to intersection
@@ -143,7 +150,7 @@ float intersect(float3 pos, float3 dir, struct Boundary bound) {
 	return pathLenToIntersection;
 }
 
-float henyeyGreenstein(float g, float rand) {
+float sampleHenyeyGreenstein(float g, float rand) {
 	if (g != 0.0f) {
 		return (1.0f / 2.0f * g) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
@@ -160,40 +167,21 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
-#define MAX_ITERATIONS 100000
-//TODO add possibility to stop and continue simulation
-/*
-typedef struct 
-{
-	float x;		// Global x coordinate [cm]
-	float y;		// Global y coordinate [cm]
-	float z;		// Global z coordinate [cm]
-	float dx;		// (Global, normalized) x-direction
-	float dy;		// (Global, normalized) y-direction
-	float dz;		// (Global, normalized) z-direction
-	unsigned int weight;			// Photon weight
-	int layer;				// Current layer
-}PhotonStruct;*/
+#define MAX_ITERATIONS 1000
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, float delta_r, 
-volatile __global ulong* R_ra
-DEBUG_BUFFER_ARG) {
-	// Reflectance (specular):
-	// percentage of light leaving at surface without any interaction
-	// using Fesnel approximation by Schlick (no incident angle, no polarization)
-	//TODO calc this on host since every thread would calc the same
-	float R_specular = pow((nAbove - layers[0].n), 2) / pow((nAbove + layers[0].n), 2);
-	// Q: why are the ^2 different than in Fesnel?
-	// Q: is diffuse reflectance given by photons escaping at top after simulation?
-	assert(R_specular < 1.0f, float, R_specular, 0, 0);
-	float photonWeight = 1.0f - R_specular;
+volatile __global ulong* R_ra,
+__global struct PhotonState* photonStates
+DEBUG_BUFFER_ARG)
+{
+	__global struct PhotonState* state = &photonStates[get_global_id(0)];
 	uint rng_state = wang_hash(get_global_id(0));
-	float3 pos = (float3)(0.0f, 0.0f, 0.0f);
-	float3 dir = (float3)(0.0f, 0.0f, 1.0f);
-	int layerIndex = 0;
-	int iteration = 0;
-	for (; iteration < MAX_ITERATIONS; iteration++) {
+	float photonWeight = state->weight;
+	float3 pos = (float3)(state->x, state->y, state->z);
+	float3 dir = (float3)(state->dx, state->dy, state->dz);
+	int layerIndex = state->layerIndex;
+	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		__global struct Layer* currentLayer = &layers[layerIndex];
 		float interactCoeff = currentLayer->absorbCoeff + currentLayer->scatterCoeff;
 		// randomize step length
@@ -239,8 +227,10 @@ DEBUG_BUFFER_ARG) {
 					float a = transmitAngle / (2.0f * PI) * 360.0f;
 					int j = (int)floor(a / (90.0f / size_a));
 					add(&R_ra[i * size_a + j], (uint)(photonWeight * 0xFFFFFFFF));
+					photonWeight = 0;
 					break;
 				} else if (layerIndex >= layerCount) {
+					photonWeight = 0;
 					break;
 				}
 			} else {
@@ -256,14 +246,14 @@ DEBUG_BUFFER_ARG) {
 				if (rand <= 1.0f/10.0f) {
 					photonWeight *= 10.0f;
 				} else {
-					photonWeight = 0.0f;
+					photonWeight = 0;
 					break;
 				}
 			}
 			// spin
 			rng_state = rand_xorshift(rng_state);
 			float rand = (float)rng_state * (1.0f / 4294967296.0f);
-			float cosTheta = henyeyGreenstein(currentLayer->g, rand); // for g==0 cosTheta is evenly distributed
+			float cosTheta = sampleHenyeyGreenstein(currentLayer->g, rand); // for g==0 cosTheta is evenly distributed
 			float theta = acos(cosTheta); // for g==0 theta has most values at pi/2, which is correct
 			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * (1.0f / 4294967296.0f);
@@ -280,9 +270,13 @@ DEBUG_BUFFER_ARG) {
 				dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) - dir.x * sin(psi)) + dir.y * cos(theta);
 				dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
 			}
-			dir = normalize(dir); // necessary when using floats
+			dir = normalize(dir); // necessary wrt precision problems of float
 		}
 	}
+	state->x = pos.x; state->y = pos.y; state->z = pos.z;
+	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
+	state->weight = photonWeight;
+	state->layerIndex = layerIndex;
 }
 
 // Basic monte carlo photon transport walkthrough

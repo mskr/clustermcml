@@ -17,9 +17,9 @@ static int rank = 0;
 
 // interfaces for external code
 const char* getCLKernelName();
-void allocCLKernelResources(char* kernelOptions, char* otherOptions,
-	size_t* inputBufferCount, size_t* inputBufferSizes,
-	size_t* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount);
+void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* otherOptions,
+	int* inputBufferCount, size_t* inputBufferSizes,
+	int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount);
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 void createGLContexts(void* outDeviceContext, void* outRenderContext);
@@ -309,10 +309,10 @@ int main(int nargs, char** args) {
 	char kernelOptions[512];
 	CL(GetProgramBuildInfo, program, devices[0], CL_PROGRAM_BUILD_OPTIONS, 512, kernelOptions, NULL);
 	char* otherOptions = nargs >= 4 ? args[3] : "";
-	size_t inputBufferCount = 0, outputBufferCount = 0;
+	int inputBufferCount = 0, outputBufferCount = 0;
 	size_t inputBufferSizes[10], outputBufferSizes[10];
 	cl_mem inputBuffers[10], outputBuffers[10];
-	allocCLKernelResources(kernelOptions, otherOptions, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10);
+	allocCLKernelResources(totalThreadCount, kernelOptions, otherOptions, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10);
 	// Host buffers were created and sizes reported, now create CL buffers
 	for (int i = 0; i < inputBufferCount; i++) {
 		inputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_ONLY, inputBufferSizes[i], NULL);
