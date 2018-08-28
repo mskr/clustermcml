@@ -234,6 +234,9 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, NULL);
 
 		// Run kernel with optimal thread count as long as targeted number of photons allows it
+		//TODO compare perf against CUDAMCML, which does not wait for longest simulating thread,
+		// but instead launches a new photon directly from a thread that would terminate,
+		// causing additional tracking overhead.
 		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
 		uint32_t finishedPhotonCount = 0;
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached

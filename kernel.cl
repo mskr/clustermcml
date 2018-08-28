@@ -4,12 +4,12 @@
 // uncomment to use 64 bit atomics if supported
 //#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
-//#include "random.cl" // not portable since this file can end up in temp folder
+//#include "random.cl" //TODO compile with -I flag, since this file can end up in temp folder
 
 #define PI 3.14159265359f
 
 // An assert macro that writes error message to host buffer and returns from current function
-//TODO also write values of local variables or dump the whole stack frame
+//TODO dump the whole stack frame when assertions fail
 #ifdef DEBUG
 #define DEBUG_BUFFER_ARG ,__global char* debugBuffer
 #define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
@@ -34,8 +34,9 @@
 // Using thread index as seed, hashes map better to the GPU
 // Hashed thread index can also be used as seed for the PRNGs
 
-// For normalized random number in [0, 1) use: 
-// (float)rng_state * (1.0f / 4294967296.0f)
+// For normalized random number in [0, 1) use: (float)rng_state * RAND_NORM
+// rng_state can be max 0xFFFFFFFF==4294967295 => rand in [0,1)
+__constant const float RAND_NORM = (1.0f / 4294967296.0f);
 
 // Xorshift algorithm from George Marsaglia's paper
 uint rand_xorshift(uint rng_state) {
@@ -101,9 +102,9 @@ __kernel void mcpi(const int npoints, __global uint* out) {
 	uint count = 0;
 	for (int j = 0; j < npoints; j++) {
 		rng_state = rand_xorshift(rng_state);
-		float x = (float)rng_state * (1.0f / 4294967296.0f);
+		float x = (float)rng_state * RAND_NORM;
 		rng_state = rand_xorshift(rng_state);
-		float y = (float)rng_state * (1.0f / 4294967296.0f);
+		float y = (float)rng_state * RAND_NORM;
 		// check if inside quarter unit circle
 		if (x * x + y * y < 1.0f) {
 			count++;
@@ -114,7 +115,7 @@ __kernel void mcpi(const int npoints, __global uint* out) {
 
 /***** MCML *****/
 
-// Boundary with customizable shapes
+//TODO Boundary with customizable shapes
 // Q: Which shapes make sense with respect to layers intersecting each other?
 struct Boundary {
 	float z; // depth
@@ -137,10 +138,10 @@ struct PhotonState {
 	int layerIndex; // current layer
 };
 
+// find ray-plane intersection point
+// if found return path length to intersection
+// otherwise return negative value
 float intersect(float3 pos, float3 dir, struct Boundary bound) {
-	// find ray-plane intersection point
-	// if found return path length to intersection
-	// otherwise return negative value
 	float3 normal = (float3)(bound.nx, bound.ny, bound.nz);
 	float a = dot(((float3)(0.0f, 0.0f, bound.z) - pos), normal);
 	if (a > -1e-6f) return -1.0f; // behind plane
@@ -150,7 +151,12 @@ float intersect(float3 pos, float3 dir, struct Boundary bound) {
 	return pathLenToIntersection;
 }
 
-float sampleHenyeyGreenstein(float g, float rand) {
+// return cos of angle, which is
+// more probable to be small the greater g is and
+// evenly distributed if g == 0
+float sampleHenyeyGreenstein(uint* rng_state, float g) {
+	*rng_state = rand_lcg(*rng_state);
+	float rand = (float)(*rng_state) * RAND_NORM;
 	if (g != 0.0f) {
 		return (1.0f / 2.0f * g) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
@@ -158,8 +164,8 @@ float sampleHenyeyGreenstein(float g, float rand) {
 	}
 }
 
+// atomically add 32 bit unsigned integer to 64 bit unsigned integer
 void add(volatile __global ulong* dst64, uint src32) {
-	// Add 32 bit unsigned integer to 64 bit unsigned integer, atomically
 	// First try to add to least significant half
 	// If there was an overflow, add 1 to most significant half
 	if (atomic_add((volatile __global uint*)dst64, src32) + src32 < src32) {
@@ -167,10 +173,14 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
+// return new photon direction
+// theta: angle to original direction
+// psi: position on circle around original direction
 float3 spin(float3 dir, float theta, float psi) {
 	if (fabs(dir.z) > 0.99999) {
 		// when photon travels straight down the z axis
 		// the regular coordinate transform would set x and y direction to (nearly) zero
+		// for this case exists a simplified equivalent formula
 		dir.x = sin(theta) * cos(psi);
 		dir.y = sin(theta) * sin(psi);
 		dir.z = sign(dir.z) * cos(theta);
@@ -183,9 +193,10 @@ float3 spin(float3 dir, float theta, float psi) {
 	return dir;
 }
 
+// return if photon is killed and update its weight (0 == dead)
 bool roulette(uint* rng_state, float* photonWeight) {
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * (1.0f / 4294967296.0f);
+	*rng_state = rand_lcg(*rng_state);
+	float rand = (float)(*rng_state) * RAND_NORM;
 	if (rand <= 1.0f/10.0f) {
 		*photonWeight *= 10.0f;
 	} else {
@@ -195,6 +206,7 @@ bool roulette(uint* rng_state, float* photonWeight) {
 	return false;
 }
 
+// return if there is an intersection in the photon step and write according parameters
 bool findIntersection(float3 pos, float3 dir, float s, __global struct Layer* layers, int currentLayer,
 __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection) {
 	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].top)) >= 0 && *pathLenToIntersection <= s) {
@@ -210,30 +222,74 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 	return false;
 }
 
-bool transmit(float3 pos, float3* dir, float transmitAngle, float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
+// update current layer and return if photon left the simulation domain
+// the corresponding detection array is also updated
+bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
+float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
 	*currentLayer = otherLayer;
-	if (*currentLayer < 0) { // photon escaped at top => record diffuse reflectance
+	if (*currentLayer < 0) {
+		// photon escaped at top => record diffuse reflectance
+		// calc indices r,a
 		float r = length(pos.xy);
 		int i = (int)floor(r / delta_r);
 		i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int j = (int)floor(a / (90.0f / size_a));
 		add(&R_ra[i * size_a + j], (uint)(*photonWeight * 0xFFFFFFFF));
+		// photon is terminated
 		*photonWeight = 0;
 		return true;
 	} else if (*currentLayer >= layerCount) {
 		*photonWeight = 0;
 		return true;
 	}
-	//TODO update direction
+	// update direction
+	float r = n1 / n2;
+	float e = r * r * (1.0f - cosIncident * cosIncident);
+	(*dir).x = r;
+	(*dir).y = r;
+	(*dir).z = copysign(sqrt(1.0f - e), (*dir).z); //TODO check if this works for all normals
 	return false;
 }
 
-void reflect(float3* dir, float3 normal) {
+// update photon direction
+void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
+	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
 	*dir += normal * dot(normal, *dir) * 2.0f; // mirror dir vector against boundary plane
 }
 
+// return if photon is reflected at boundary
+bool decideReflectOrTransmit(uint* rng_state, float3 dir,
+__global struct Layer* layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
+__global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
+	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
+	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
+	assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
+	float cosIncident = dot(normal, -dir);
+	// straight transmission if refractive index is const
+	if (otherN == layers[currentLayer].n) {
+		*outTransmitAngle = 0;
+		*outCosIncident = cosIncident;
+		*outN1 = layers[currentLayer].n;
+		*outN2 = otherN;
+		return false;
+	}
+	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
+	float incidentAngle = acos(cosIncident);
+	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
+	float transmitAngle = asin(sinTransmit);
+	float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
+	*rng_state = rand_lcg(*rng_state);
+	float rand = (float)(*rng_state) * RAND_NORM;
+	*outTransmitAngle = transmitAngle;
+	*outCosIncident = cosIncident;
+	*outN1 = layers[currentLayer].n;
+	*outN2 = otherN;
+	return (rand <= fresnelR);
+}
+
+// control time spent on the GPU in each round
 #define MAX_ITERATIONS 1000
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
@@ -251,47 +307,47 @@ DEBUG_BUFFER_ARG)
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
-		rng_state = rand_xorshift(rng_state);
-		float rand = (float)rng_state * (1.0f / 4294967296.0f); // rng_state can be max 0xFFFFFFFF=4294967295 => rand in [0,1)
+		rng_state = rand_lcg(rng_state);
+		float rand = (float)rng_state * RAND_NORM;
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
+		// test ray-boundary-intersection
 		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0;
 		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection)) {
-			pos += dir * pathLenToIntersection; // unfinished part of s can be ignored
-			//TODO drop some weight here?
-			// decide transmit or reflect
-			float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
-			float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
-			assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
-			float cosIncident = dot(normal, -dir);
-			float incidentAngle = acos(cosIncident);
-			float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
-			float transmitAngle = asin(sinTransmit);
-			float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
-			rng_state = rand_xorshift(rng_state);
-			float rand = (float)rng_state * (1.0f / 4294967296.0f);
-			if (rand <= fresnelR) {
-				reflect(&dir, normal);
+			pos += dir * pathLenToIntersection; // hop (unfinished part of s can be ignored)
+
+			//TODO drop some weight here?????????????????????????????????????????????????????????????????????????????
+
+			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
+			// transmit or reflect at boundary
+			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, &transmitAngle, &cosIncident, &n1, &n2)) {
+				reflect(&dir, intersectedBoundary);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) break;
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) {
+					break;
+				}
 			}
-		} else { // absorb and scatter
+		} else {
 			pos += dir * s; // hop
+			// absorb and scatter in medium
 			photonWeight -= photonWeight * layers[currentLayer].absorbCoeff / interactCoeff; // drop
 			if (photonWeight < 0.0001f) {
-				if (roulette(&rng_state, &photonWeight)) break;
+				if (roulette(&rng_state, &photonWeight)) {
+					break;
+				}
 			}
 			// spin
-			rng_state = rand_xorshift(rng_state);
-			float rand = (float)rng_state * (1.0f / 4294967296.0f);
-			float cosTheta = sampleHenyeyGreenstein(layers[currentLayer].g, rand); // for g==0 cosTheta is evenly distributed
-			float theta = acos(cosTheta); // for g==0 theta has most values at pi/2, which is correct
-			rng_state = rand_xorshift(rng_state);
-			rand = (float)rng_state * (1.0f / 4294967296.0f);
+			// for g==0 cosTheta is evenly distributed
+			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
+			// for g==0 theta has most values at pi/2, which is correct???
+			float theta = acos(cosTheta);
+			rng_state = rand_lcg(rng_state);
+			rand = (float)rng_state * RAND_NORM;
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
-			dir = normalize(dir); // necessary wrt precision problems of float
+			dir = normalize(dir); // normalize necessary wrt precision problems of float
 		}
 	}
+	// save state for the next round
 	state->x = pos.x; state->y = pos.y; state->z = pos.z;
 	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
 	state->weight = photonWeight;
