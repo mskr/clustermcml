@@ -53,6 +53,8 @@ static SimulationStruct* simulations = 0;
 static int simCount = 0;
 static Layer** layersPerSimulation = 0;
 static uint64_t** reflectancePerSimulation = 0;
+static uint64_t** transmissionPerSimulation = 0;
+static uint64_t** absorptionPerSimulation = 0;
 static PhotonState** photonStatesPerSimulation = 0;
 static char* debugBuffer = 0;
 
@@ -69,10 +71,12 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
+	transmissionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
+	absorptionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	photonStatesPerSimulation = (PhotonState**)malloc(simCount * sizeof(PhotonState*));
 
 	*inputBufferCount = simCount;
-	*outputBufferCount = simCount * 2;
+	*outputBufferCount = simCount * 2; //TODO add T and A buffers
 
 	assert(*outputBufferCount <= maxBufferCount);
 
@@ -101,6 +105,15 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		uint64_t* R_ra = (uint64_t*)malloc(reflectanceBufferSize);
 		reflectancePerSimulation[i] = R_ra;
+
+		size_t transmissionBufferSize = reflectanceBufferSize;
+		uint64_t* T_ra = (uint64_t*)malloc(transmissionBufferSize);
+		transmissionPerSimulation[i] = T_ra;
+
+		int depthBinCount = simulations[i].det.nz;
+		size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(uint64_t);
+		uint64_t* A_rz = (uint64_t*)malloc(absorptionBufferSize);
+		absorptionPerSimulation[i] = A_rz;
 
 		photonStatesPerSimulation[i] = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
 
@@ -265,9 +278,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);
 			std::cout << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 
-			uint64_t* Rd_ra = reflectancePerSimulation[simIndex];
+			uint64_t* R_ra = reflectancePerSimulation[simIndex];
+			uint64_t* T_ra = transmissionPerSimulation[simIndex];
+			uint64_t* A_rz = absorptionPerSimulation[simIndex];
 
-			Write_Simulation_Results(Rd_ra, Rd_ra, Rd_ra, &simulations[simIndex], timeEnd - timeStart);
+			Write_Simulation_Results(A_rz, T_ra, R_ra, &simulations[simIndex], timeEnd - timeStart);
 
 			CL(GetEventProfilingInfo, reflectanceTransferEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
 			CL(GetEventProfilingInfo, reflectanceTransferEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);

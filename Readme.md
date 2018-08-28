@@ -40,6 +40,8 @@ The debug buffer can also be visualized with a GL shader.
 MPI and OpenCL boilerplate setup is done in "main.cpp".
 Real work is done in the "run\*.cpp" files and "kernel.cl".
 
+//TODO document interfaces
+
 Currently there are two other kernel functions in kernel.cl besides "mcml" for testing purposes:
 - "simpson" integrates the function "simpson_f" with the simpson method (integrate from 0 to 1 to approximate PI)
 - "mcpi" approximates PI with a monte carlo method
@@ -49,7 +51,9 @@ This works by simply linking different "getCLKernelName" and "runCLKernel" funct
 As you can see in the "run\*.cpp" files, the latter function sets the kernel arguments,
 places it in a command queue, waits for it to finish and accumulates the results from all threads and processes.
 
-The interfaces of runSimpson and runMonteCarloPi need to be updated, because it was changed for runMCML!
+//TODO The interfaces of runSimpson and runMonteCarloPi need to be updated, because it was changed for runMCML!
+
+//TODO split kernel file
 
 
 
@@ -70,6 +74,8 @@ The interfaces of runSimpson and runMonteCarloPi need to be updated, because it 
 - only compile kernel when timestamp newer than binary, otherwise use binary
 
 - only broadcast kernel if needed (each node keeps a binary)
+
+- add build option to bake kernel into cpp source to make the exe self-contained
 
 
 ## Project TODOs
