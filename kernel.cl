@@ -197,7 +197,7 @@ float3 spin(float3 dir, float theta, float psi) {
 bool roulette(uint* rng_state, float* photonWeight) {
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
-	if (rand <= 1.0f/10.0f) {
+	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
 	} else {
 		*photonWeight = 0;
@@ -265,7 +265,6 @@ __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount,
 __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
-	assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
 	float cosIncident = dot(normal, -dir);
 	// straight transmission if refractive index is const
 	if (otherN == layers[currentLayer].n) {
@@ -274,6 +273,15 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 		*outN1 = layers[currentLayer].n;
 		*outN2 = otherN;
 		return false;
+	}
+	if (layers[currentLayer].n < otherN && otherN * otherN * (1.0f - cosIncident * cosIncident)) {
+		return true;
+	}
+	if (cosIncident == 1.0f) {
+		float r = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
+		*rng_state = rand_lcg(*rng_state);
+		float rand = (float)(*rng_state) * RAND_NORM;
+		return (rand < r * r);
 	}
 	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
 	float incidentAngle = acos(cosIncident);
