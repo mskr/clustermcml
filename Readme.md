@@ -80,6 +80,8 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 ## Project TODOs
 
+- add rule to Makefile that can find runtime paths (via batch script) and writes them into Makefile
+
 - build 64 bit
 
 - port to MPICH (Linux)
