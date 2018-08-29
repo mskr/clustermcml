@@ -263,9 +263,8 @@ void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
 bool decideReflectOrTransmit(uint* rng_state, float3 dir,
 __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
 __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
-	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
+	float otherN = (otherLayer < 0) ? nAbove : ((otherLayer >= layerCount) ? nBelow : layers[otherLayer].n);
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
-	assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
 	float cosIncident = dot(normal, -dir);
 	// straight transmission if refractive index is const
 	if (otherN == layers[currentLayer].n) {
@@ -277,9 +276,11 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 	}
 	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
 	float incidentAngle = acos(cosIncident);
-	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
+	float sinTransmit = (layers[currentLayer].n * sin(incidentAngle)) / otherN; // Snell's law
 	float transmitAngle = asin(sinTransmit);
-	float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
+	float fresnelR = (1.0f/2.0f) * 
+		((pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle - transmitAngle), 2)) + 
+		 (pow(tan(incidentAngle + transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2)));
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	*outTransmitAngle = transmitAngle;
@@ -313,10 +314,9 @@ DEBUG_BUFFER_ARG)
 		// test ray-boundary-intersection
 		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0;
 		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection)) {
-			pos += dir * pathLenToIntersection; // hop (unfinished part of s can be ignored)
-
-			//TODO drop some weight here?????????????????????????????????????????????????????????????????????????????
-
+			// move photon to boundary with flight free of interactions (see MCML manual 3.6)
+			// unfinished part of s can be ignored (see CUDAMCML manual 3.4)
+			pos += dir * pathLenToIntersection;
 			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
 			// transmit or reflect at boundary
 			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, &transmitAngle, &cosIncident, &n1, &n2)) {
