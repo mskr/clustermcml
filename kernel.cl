@@ -197,7 +197,7 @@ float3 spin(float3 dir, float theta, float psi) {
 bool roulette(uint* rng_state, float* photonWeight) {
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
-	if (rand <= 1.0f/10.0f) {
+	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
 	} else {
 		*photonWeight = 0;
@@ -273,6 +273,15 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 		*outN1 = layers[currentLayer].n;
 		*outN2 = otherN;
 		return false;
+	}
+	if (layers[currentLayer].n < otherN && otherN * otherN * (1.0f - cosIncident * cosIncident)) {
+		return true;
+	}
+	if (cosIncident == 1.0f) {
+		float r = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
+		*rng_state = rand_lcg(*rng_state);
+		float rand = (float)(*rng_state) * RAND_NORM;
+		return (rand < r * r);
 	}
 	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
 	float incidentAngle = acos(cosIncident);
