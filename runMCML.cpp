@@ -240,6 +240,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
 		uint32_t finishedPhotonCount = 0;
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
+			//TODO since buffer updates are sparse, map could be faster than write in whole
 			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
 				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
 			size_t remainingPhotonCount = targetPhotonCount - finishedPhotonCount;
@@ -263,7 +264,6 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 					PhotonState newState = createNewPhotonState();
 					newState.weight -= R_specular;
 					photonStatesPerSimulation[simIndex][i] = newState;
-					//TODO since buffer updates are sparse, map could be faster than write in whole
 				}
 			}
 			if (rank == 0) {
