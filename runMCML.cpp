@@ -189,8 +189,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		// percentage of light leaving at surface without any interaction
 		// using Fesnel approximation by Schlick (no incident angle, no polarization)
 		// Q: why are the ^2 different than in Schlicks approximation?
-		float nDiff = nAbove - simulations[simIndex].layers[0].n;
-		float nSum = nAbove + simulations[simIndex].layers[0].n;
+		float nDiff = nAbove - simulations[simIndex].layers[1].n;
+		float nSum = nAbove + simulations[simIndex].layers[1].n;
 		float R_specular = (nDiff * nDiff) / (nSum * nSum);
 		
 		// init photon states

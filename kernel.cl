@@ -265,7 +265,6 @@ __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount,
 __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
-	assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
 	float cosIncident = dot(normal, -dir);
 	// straight transmission if refractive index is const
 	if (otherN == layers[currentLayer].n) {
@@ -287,8 +286,14 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
 	float incidentAngle = acos(cosIncident);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
-	float transmitAngle = asin(sinTransmit);
-	float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
+	float fresnelR, transmitAngle;
+	if (sinTransmit >= 1.0f) {
+		transmitAngle = PI/2.0f;
+		fresnelR = 1.0f;
+	} else {
+		transmitAngle = asin(sinTransmit);
+		fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
+	}
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	*outTransmitAngle = transmitAngle;
