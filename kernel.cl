@@ -283,7 +283,6 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 		float rand = (float)(*rng_state) * RAND_NORM;
 		return (rand < r * r);
 	}
-	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
 	float incidentAngle = acos(cosIncident);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
 	float fresnelR, transmitAngle;
