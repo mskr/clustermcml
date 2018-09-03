@@ -239,6 +239,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		// causing additional tracking overhead.
 		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
 		uint32_t finishedPhotonCount = 0;
+		std::cout << std::endl;
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
 			//TODO since buffer updates are sparse, map could be faster than write in whole
 			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
@@ -267,9 +268,10 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 				}
 			}
 			if (rank == 0) {
-				std::cout << "Photons terminated: " << finishedPhotonCount << "/" << targetPhotonCount << std::endl;
+				std::cout << '\r' << "Photons terminated: " << finishedPhotonCount << "/" << targetPhotonCount << std::flush;
 			}
 		}
+		std::cout << std::endl;
 
 		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, &reflectanceTransferEvent);
