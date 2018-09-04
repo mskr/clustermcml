@@ -367,7 +367,11 @@ int main(int nargs, char** args) {
 
 	// work can be further spread on multiple devices using multiple command queues
 
-	// for also using CPUs we should create a separate cl context
+	// For also using CPU there are options:
+	// 1. create a separate cl context and compile kernel for CPU
+	// 2. compile kernel with C compiler (macro defines, no vector types) 
+	// 3. Automatic scheduling of the submitted commands on OpenCL devices
+	//    http://starpu.gforge.inria.fr/doc/html/SOCLOpenclExtensions.html
 
 	// Hot reloading hardcoded parameters
 	// http://tuxedolabs.blogspot.com/2018/03/hot-reloading-hardcoded-parameters.html?m=1
