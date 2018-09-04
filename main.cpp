@@ -317,26 +317,32 @@ int main(int nargs, char** args) {
 	for (int i = 0; i < inputBufferCount; i++) {
 		inputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_ONLY, inputBufferSizes[i], NULL);
 	}
+	#ifdef GL_VISUALIZATION
+	bool* couldCreateGLBuffer = new bool[outputBufferCount]();
+	#endif
 	for (int i = 0; i < outputBufferCount; i++) {
 		#ifdef GL_VISUALIZATION
 		unsigned int glBuf = 0;
 		createGLBuffer(outputBufferSizes[i], &glBuf);
-		outputBuffers[i] = CLCREATE(FromGLBuffer, context, CL_MEM_READ_WRITE, glBuf);
+		if (glBuf) {
+			couldCreateGLBuffer[i] = true;
+			outputBuffers[i] = CLCREATE(FromGLBuffer, context, CL_MEM_READ_WRITE, glBuf);
+			CL(EnqueueAcquireGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
+		} else {
+			outputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, outputBufferSizes[i], NULL);
+		}
 		#else
 		outputBuffers[i] = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, outputBufferSizes[i], NULL);
 		#endif
 	}
-	#ifdef GL_VISUALIZATION
-	// glFinish(); no need to finish gl commands as we havent even started the render loop
-	for (int i = 0; i < outputBufferCount; i++) {
-		CL(EnqueueAcquireGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
-	}
-	#endif
 	runCLKernel(context, cmdQueue1, kernel, inputBuffers, outputBuffers, totalThreadCount, simdThreadCount, processCount, rank);
 	#ifdef GL_VISUALIZATION
 	for (int i = 0; i < outputBufferCount; i++) {
-		CL(EnqueueReleaseGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
+		if (couldCreateGLBuffer[i]) {
+			CL(EnqueueReleaseGLObjects, cmdQueue1, 1, &outputBuffers[i], 0, NULL, NULL);
+		}
 	}
+	delete[] couldCreateGLBuffer;
 	runGLRenderLoop();
 	#endif
 

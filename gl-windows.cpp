@@ -137,10 +137,11 @@ static int runWindowsMessageLoop() {
 				glAttachShader(shaderProgram, fragmentShader);
 				glAttachShader(shaderProgram, vertexShader);
 				glLinkProgram(shaderProgram);
-				std::cout << " [OK]" << std::endl << "  ";
+				std::cout << " [OK]" << std::endl;
 			} else {
-				std::cout << "  [CONTINUE AFTER ERROR]" << std::endl << "  ";
+				std::cout << "  [CONTINUE AFTER ERROR]" << std::endl;
 			}
+			std::cout << "  " << std::flush; // indentation
 			inputThreadFlag = false;
 		}
 
@@ -273,13 +274,18 @@ static void createGLQuadVAO(GLuint* outVAO) {
 }
 
 static void runReadPrintLoop() {
-	std::cout << "[:::::: FRAGMENT SHADER EDITOR ::::::]" << std::endl;
+	std::cout << " ____________________________________________________________" << std::endl;
+	std::cout << "|::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::|" << std::endl;
+	std::cout << "|:::::::::::::::::: FRAGMENT SHADER EDITOR ::::::::::::::::::|" << std::endl;
+	std::cout << "|::::::: works only in Microsoft shell, ESC to close ::::::::|" << std::endl;
+	std::cout << std::endl;
 	std::cout << glslVersionString + glslUniformStrings + fragmentShaderSource;
 	const int pollInterval = 200; // milliseconds
-	std::cout << "  ";
+	std::cout << "  " << std::flush; // indentation
 	std::string in;
 	while (running) {
 		// poll standard input before reading so that it is non-blocking
+		// this will not work for other shells than Microsoft
 		if (WaitForSingleObject(GetStdHandle(STD_INPUT_HANDLE), pollInterval) == WAIT_OBJECT_0) {
 			INPUT_RECORD buf[128]; DWORD readCount;
 			if (ReadConsoleInput(GetStdHandle(STD_INPUT_HANDLE), buf, 128, &readCount)) {
@@ -295,15 +301,18 @@ static void runReadPrintLoop() {
 								}
 		                    } else if (c == 8) { // backspace
 		                    	if (in.size() > 0) {
+		                    		std::string whitespace(in.size(), ' ');
+		                    		std::cout << '\r' << "  " << whitespace << std::flush;
 		                    		in.resize(in.size() - 1);
-		                    		std::cout << std::endl << "  " << in;
+		                    		std::cout << '\r' << "  " << in << std::flush;
 		                    	}
 		                    } else if (c >= 32 && c <= 126) { // printable
 		                    	in += c;
 		                    	std::cout << c;
 		                    }
 		                    if (buf[i].Event.KeyEvent.wVirtualKeyCode == 27) { // escape
-		                    	running = false; break;
+		                    	running = false;
+		                    	break;
 		                    }
 		                }
 		            }
@@ -311,6 +320,7 @@ static void runReadPrintLoop() {
 			}
 		}
 	}
+	std::cout << std::endl << "}";
 }
 
 
@@ -328,19 +338,26 @@ void createGLContexts(void* outDeviceContext, void* outRenderContext) {
 	createGLQuadVAO(&vao);
 }
 
-void createGLBuffer(size_t size, void* outBuffer) {
+void createGLBuffer(size_t bytes, void* outBuffer) {
+	GLint maxSize; glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &maxSize);
+	if (bytes > maxSize) {
+		std::cout << bytes << " exceeds max size of " << maxSize << " for GL uniform buffer" << std::endl;
+		return;
+	}
 	static GLuint bindingPoint = 0; // assignemt happens once at program start, then value persists
 
 	std::string bindingPointString = std::to_string(bindingPoint);
 	std::string uniformName = "Buf" + bindingPointString;
-	size_t sizeIn32BitWords = size / 4;
+	size_t words = bytes / 4;
 
 	// to access each scalar in array, use std140 memory layout rules and access through vec4
 	// https://www.khronos.org/opengl/wiki/Interface_Block_(GLSL)#Memory_layout
 	glslUniformStrings += "layout(std140, binding=" + bindingPointString + ") uniform " + uniformName
-		+ " {\n  uvec4 buf" + bindingPointString + "[" + std::to_string(sizeIn32BitWords/4) + "];\n};\n";
+		+ " {\n  uvec4 buf" + bindingPointString + "[" + std::to_string(words/4) + "];"
+		+ " // " + std::to_string(words) + " uints, " + std::to_string(bytes) + " bytes"
+		+ "\n};\n";
 	fragmentShaderSource = fragmentShaderSource
-		+ "  i = int(floor(p.x * " + std::to_string(sizeIn32BitWords) + "));\n"
+		+ "  i = int(floor(p.x * " + std::to_string(words) + "));\n"
 		+ "  f = float(buf" + bindingPointString + "[i/4][i%4]) / 4294967296.;\n"
 		+ "  if(p.y < f) color=vec4(1); else color=vec4(0);\n";
 	std::string shaderSource = glslVersionString + glslUniformStrings + fragmentShaderSource;
@@ -353,14 +370,14 @@ void createGLBuffer(size_t size, void* outBuffer) {
 	GLuint ubo = 0;
 	glGenBuffers(1, &ubo);
 	glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-	glBufferData(GL_UNIFORM_BUFFER, size, NULL, GL_DYNAMIC_DRAW);
+	glBufferData(GL_UNIFORM_BUFFER, bytes, NULL, GL_DYNAMIC_DRAW);
 	glBindBuffer(GL_UNIFORM_BUFFER, 0);
 	GLuint index = glGetUniformBlockIndex(shaderProgram, uniformName.c_str());
 	if (index != GL_INVALID_INDEX) {
 		glUniformBlockBinding(shaderProgram, index, bindingPoint);
 		glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, ubo);
-		bindingPoint++;
 	}
+	bindingPoint++;
 	*((GLuint*)outBuffer) = ubo;
 	//TODO buffer cleanup at end of render loop
 }
