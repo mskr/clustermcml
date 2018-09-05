@@ -158,7 +158,7 @@ float sampleHenyeyGreenstein(uint* rng_state, float g) {
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	if (g != 0.0f) {
-		return (1.0f / 2.0f * g) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
+		return (1.0f / (2.0f * g)) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
 		return 2 * rand - 1;
 	}
