@@ -307,16 +307,14 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, float delta_r, 
-volatile __global ulong* R_ra,
-__global struct PhotonState* photonStates
+volatile __global ulong* R_ra
 DEBUG_BUFFER_ARG)
 {
-	__global struct PhotonState* state = &photonStates[get_global_id(0)];
 	uint rng_state = wang_hash(get_global_id(0));
-	float photonWeight = state->weight;
-	float3 pos = (float3)(state->x, state->y, state->z);
-	float3 dir = (float3)(state->dx, state->dy, state->dz);
-	int currentLayer = state->layerIndex;
+	float photonWeight = 1.0;
+	float3 pos = (float3)(0, 0, 0);
+	float3 dir = (float3)(0, 0, 1);
+	int currentLayer =0;
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
@@ -353,6 +351,9 @@ DEBUG_BUFFER_ARG)
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
 			// for g==0 theta has most values at pi/2, which is correct???
 			float theta = acos(cosTheta);
+
+			atomic_add(&((__global uint*)(debugBuffer))[(int)floor(theta / (2*PI) * 500.0f)], 100u);
+
 			rng_state = rand_lcg(rng_state);
 			rand = (float)rng_state * RAND_NORM;
 			float psi = 2 * PI * rand;
@@ -360,11 +361,6 @@ DEBUG_BUFFER_ARG)
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
 		}
 	}
-	// save state for the next round
-	state->x = pos.x; state->y = pos.y; state->z = pos.z;
-	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
-	state->weight = photonWeight;
-	state->layerIndex = currentLayer;
 }
 
 // Basic monte carlo photon transport walkthrough

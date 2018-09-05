@@ -26,23 +26,6 @@ struct Layer {
 	struct Boundary bottom;
 };
 
-struct PhotonState {
-	float x, y, z; // pos [cm]
-	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
-	int layerIndex; // current layer
-};
-
-
-static PhotonState createNewPhotonState() {
-	return {
-		0.0f, 0.0f, 0.0f, // start position
-		0.0f, 0.0f, 1.0f, // start direction
-		1.0f, // start weight
-		0 // start layer index
-	};
-}
-
 
 const char* getCLKernelName() {
 	return "mcml";
@@ -55,7 +38,6 @@ static Layer** layersPerSimulation = 0;
 static uint64_t** reflectancePerSimulation = 0;
 static uint64_t** transmissionPerSimulation = 0;
 static uint64_t** absorptionPerSimulation = 0;
-static PhotonState** photonStatesPerSimulation = 0;
 static char* debugBuffer = 0;
 
 
@@ -73,10 +55,9 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	transmissionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	absorptionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
-	photonStatesPerSimulation = (PhotonState**)malloc(simCount * sizeof(PhotonState*));
 
 	*inputBufferCount = simCount;
-	*outputBufferCount = simCount * 2; //TODO add T and A buffers
+	*outputBufferCount = simCount; //TODO add T and A buffers
 
 	assert(*outputBufferCount <= maxBufferCount);
 
@@ -115,10 +96,7 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 		uint64_t* A_rz = (uint64_t*)malloc(absorptionBufferSize);
 		absorptionPerSimulation[i] = A_rz;
 
-		photonStatesPerSimulation[i] = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
-
 		outputBufferSizes[i] = reflectanceBufferSize;
-		outputBufferSizes[simCount + i] = totalThreadCount * sizeof(PhotonState);
 	}
 
 	int debugMode = std::string(kernelOptions).find("-D DEBUG") != std::string::npos ? 1 : 0;
@@ -135,7 +113,6 @@ static void freeResources() {
 		free(debugBuffer);
 	}
 	for (int i = 0; i < simCount; i++) {
-		free(photonStatesPerSimulation[i]);
 		free(reflectancePerSimulation[i]);
 		free(layersPerSimulation[i]);
 		free(simulations[i].layers);
@@ -193,19 +170,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		float nSum = nAbove + simulations[simIndex].layers[1].n;
 		float R_specular = (nDiff * nDiff) / (nSum * nSum);
 		
-		// init photon states
-		for (int i = 0; i < totalThreadCount; i++) {
-			PhotonState newState = createNewPhotonState();
-			newState.weight -= R_specular;
-			photonStatesPerSimulation[simIndex][i] = newState;
-		}
 
 		int radialBinCount = simulations[simIndex].det.nr;
 		float radialBinCentimeters = simulations[simIndex].det.dr;
 		int angularBinCount = simulations[simIndex].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
-
-		size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonState);
 
 		// init accumulation buffers with zeros
 		for (int i = 0; i < radialBinCount * angularBinCount; i++) {
@@ -221,7 +190,6 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
 		CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
 		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simIndex]); // reflectance buffer
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount + simIndex]); // photon state buffer
 		if (debugBuffer) {
 			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount]);
 		}
@@ -242,16 +210,12 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		std::cout << std::endl;
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
 			//TODO since buffer updates are sparse, map could be faster than write in whole
-			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
-				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
 			size_t remainingPhotonCount = targetPhotonCount - finishedPhotonCount;
 			if (remainingPhotonCount > totalThreadCount) {
 				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 			} else {
 				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &remainingPhotonCount, NULL, 0, NULL, &kernelEvent);
 			}
-			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
-				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
 			if (debugBuffer) {
 				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
 			}
@@ -259,14 +223,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			if (debugBuffer) {
 				assert(!handleDebugOutput());
 			}
-			for (int i = 0; i < totalThreadCount; i++) {
-				if (photonStatesPerSimulation[simIndex][i].weight == 0) {
-					finishedPhotonCount++;
-					PhotonState newState = createNewPhotonState();
-					newState.weight -= R_specular;
-					photonStatesPerSimulation[simIndex][i] = newState;
-				}
-			}
+			finishedPhotonCount += totalThreadCount;
 			if (rank == 0) {
 				std::cout << '\r' << "Photons terminated: " << finishedPhotonCount << "/" << targetPhotonCount << std::flush;
 			}
