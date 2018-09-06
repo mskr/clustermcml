@@ -82,6 +82,8 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 - add build option to bake kernel into cpp source to make the exe self-contained
 
+- Hash by Dave Hoskins: https://www.shadertoy.com/view/4djSRW
+
 
 ## Project TODOs
 
