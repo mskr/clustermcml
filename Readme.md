@@ -71,6 +71,13 @@ places it in a command queue, waits for it to finish and accumulates the results
   and photon state buffer yields an "out of resources" error on Win10+Nvidia
   respectively driver crash on Win7+AMD. Removing the photon state buffer (~150 KB)
   makes it work.
+  - This should be the cause:
+  `CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount + simIndex]); // photon state buffer
+        if (debugBuffer) {
+        	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount]);
+        }`
+    Photon state buffer is mistaken for the debug buffer here when simIndex==0!
+    Need a better mapping between host buffers and GPU buffer handles!
 
 - use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs
 
