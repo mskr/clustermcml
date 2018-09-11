@@ -80,14 +80,20 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 - only broadcast kernel if needed (each node keeps a binary)
 
-- add build option to bake kernel into cpp source to make the exe self-contained
-
 - Hash by Dave Hoskins: https://www.shadertoy.com/view/4djSRW
 
 
 ## Project TODOs
 
+- Turn main.cpp into module ("cluster.cpp")
+  - nicer interface functions (fewer arguments, fewer functions, wrappers?)
+  - header files for each module
+
+- add rule to Makefile to bake kernel into cpp source to make the exe self-contained
+  - so you can run "clustermcml.exe sample.mci"
+
 - add rule to Makefile that can find runtime paths (via batch script) and writes them into Makefile
+  - https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
 
 - build 64 bit
 
