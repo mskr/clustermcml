@@ -6,12 +6,43 @@
 
 //#include "random.cl" //TODO compile with -I flag, since this file can end up in temp folder
 
+#ifdef CL2CPP
+#include <stdint.h> // uint32_t, uint64_t
+#define GLM_FORCE_SWIZZLE 
+#include "glm/glm.hpp"
+#define __constant
+#define __kernel
+#define __global
+#define uint uint32_t
+#define ulong uint64_t
+size_t get_global_id(uint dimindx) {
+	return 0;
+}
+size_t get_global_size (uint dimindx) {
+	return 1;
+}
+unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
+	unsigned int old = *p;
+	*p += val;
+	return old;
+}
+#define float3 glm::vec3
+#define dot glm::dot
+#define sign glm::sign
+#define length glm::length
+#define min glm::min
+#define xy xy()
+#undef assert
+#endif
+
+
+
 #define PI 3.14159265359f
 
 // An assert macro that writes error message to host buffer and returns from current function
 //TODO dump the whole stack frame when assertions fail
 #ifdef DEBUG
-#define DEBUG_BUFFER_ARG ,__global char* debugBuffer
+#define DEBUG_BUFFER_ARG ,volatile __global uint* debugBuffer
 #define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x) //The extra level of indirection will allow the preprocessor to expand the macros before they are converted to strings.
@@ -155,7 +186,7 @@ float intersect(float3 pos, float3 dir, struct Boundary bound) {
 // more probable to be small the greater g is and
 // evenly distributed if g == 0
 float sampleHenyeyGreenstein(uint* rng_state, float g) {
-	*rng_state = rand_lcg(*rng_state);
+	*rng_state = rand_xorshift(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	if (g != 0.0f) {
 		return (1.0f / (2.0f * g)) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
@@ -195,7 +226,7 @@ float3 spin(float3 dir, float theta, float psi) {
 
 // return if photon is killed and update its weight (0 == dead)
 bool roulette(uint* rng_state, float* photonWeight) {
-	*rng_state = rand_lcg(*rng_state);
+	*rng_state = rand_xorshift(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
@@ -279,7 +310,7 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 	}
 	if (cosIncident == 1.0f) {
 		float r = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
-		*rng_state = rand_lcg(*rng_state);
+		*rng_state = rand_xorshift(*rng_state);
 		float rand = (float)(*rng_state) * RAND_NORM;
 		return (rand < r * r);
 	}
@@ -293,7 +324,7 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 		transmitAngle = asin(sinTransmit);
 		fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
 	}
-	*rng_state = rand_lcg(*rng_state);
+	*rng_state = rand_xorshift(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	*outTransmitAngle = transmitAngle;
 	*outCosIncident = cosIncident;
@@ -304,6 +335,8 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 
 // control time spent on the GPU in each round
 #define MAX_ITERATIONS 1000
+
+#define MAX_BOUNCES 2
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, float delta_r, 
@@ -317,10 +350,11 @@ DEBUG_BUFFER_ARG)
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
+	int bounces = 0;
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
-		rng_state = rand_lcg(rng_state);
+		rng_state = rand_xorshift(rng_state);
 		float rand = (float)rng_state * RAND_NORM;
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
 		// test ray-boundary-intersection
@@ -353,11 +387,16 @@ DEBUG_BUFFER_ARG)
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
 			// for g==0 theta has most values at pi/2, which is correct???
 			float theta = acos(cosTheta);
-			rng_state = rand_lcg(rng_state);
+			rng_state = rand_xorshift(rng_state);
 			rand = (float)rng_state * RAND_NORM;
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
+		}
+		bounces++;
+		if (bounces == MAX_BOUNCES) {
+			photonWeight = 0;
+			break;
 		}
 	}
 	// save state for the next round
