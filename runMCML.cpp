@@ -49,6 +49,13 @@ const char* getCLKernelName() {
 }
 
 
+static uint32_t* inputBuffers;
+static uint32_t* outputBuffers;
+//TODO store handles
+cl_mem getReflectanceDeviceBuffer(int simIndex);
+uint64* getReflectanceHostBuffer(int simIndex); //TODO write getters
+
+
 static SimulationStruct* simulations = 0;
 static int simCount = 0;
 static Layer** layersPerSimulation = 0;
@@ -57,6 +64,7 @@ static uint64_t** transmissionPerSimulation = 0;
 static uint64_t** absorptionPerSimulation = 0;
 static PhotonState** photonStatesPerSimulation = 0;
 static char* debugBuffer = 0;
+
 
 
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
@@ -69,25 +77,25 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
 	std::cout << "<--- "<<mcmlOptions<<" ---" << std::endl;
 
+	// ensure no bins can overflow
+	for (int i = 0; i < simCount; i++) {
+		assert(simulations[i].number_of_photons <= 0xFFFFFFFFu); 
+	}
+
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	transmissionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	absorptionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	photonStatesPerSimulation = (PhotonState**)malloc(simCount * sizeof(PhotonState*));
 
-	*inputBufferCount = simCount;
-	*outputBufferCount = simCount * 2; //TODO add T and A buffers
+	*inputBufferCount = 0;
+	*outputBufferCount = 0;
 
-	assert(*outputBufferCount <= maxBufferCount);
-
+	// Layer buffer
 	for (int i = 0; i < simCount; i++) {
-
-		assert(simulations[i].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
-
 		int layerCount = simulations[i].n_layers;
-
-		inputBufferSizes[i] = layerCount * sizeof(Layer);
-		Layer* layers = (Layer*)malloc(inputBufferSizes[i]);
+		inputBufferSizes[(*inputBufferCount)++] = layerCount * sizeof(Layer);
+		Layer* layers = (Layer*)malloc(layerCount * sizeof(Layer));
 		layersPerSimulation[i] = layers;
 		for (int j = 1; j <= layerCount; j++) {
 			layers[j - 1] = {
@@ -99,26 +107,40 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 				Boundary{simulations[i].layers[j].z_max, 0.0f, 0.0f, -1.0f},
 			};
 		}
+	}
 
+	// Reflectance buffer
+	for (int i = 0; i < simCount; i++) {
 		int radialBinCount = simulations[i].det.nr;
 		int angularBinCount = simulations[i].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		uint64_t* R_ra = (uint64_t*)malloc(reflectanceBufferSize);
 		reflectancePerSimulation[i] = R_ra;
+		outputBufferSizes[(*outputBufferCount)++] = reflectanceBufferSize;
+	}
 
-		size_t transmissionBufferSize = reflectanceBufferSize;
+	// Transmission buffer
+	for (int i = 0; i < simCount; i++) {
+		int radialBinCount = simulations[i].det.nr;
+		int angularBinCount = simulations[i].det.na;
+		size_t transmissionBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		uint64_t* T_ra = (uint64_t*)malloc(transmissionBufferSize);
 		transmissionPerSimulation[i] = T_ra;
+	}
 
+	// Absorption buffer
+	for (int i = 0; i < simCount; i++) {
+		int radialBinCount = simulations[i].det.nr;
 		int depthBinCount = simulations[i].det.nz;
 		size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(uint64_t);
 		uint64_t* A_rz = (uint64_t*)malloc(absorptionBufferSize);
 		absorptionPerSimulation[i] = A_rz;
+	}
 
+	// Photon states buffer
+	for (int i = 0; i < simCount; i++) {
 		photonStatesPerSimulation[i] = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
-
-		outputBufferSizes[i] = reflectanceBufferSize;
-		outputBufferSizes[simCount + i] = totalThreadCount * sizeof(PhotonState);
+		outputBufferSizes[(*outputBufferCount)++] = totalThreadCount * sizeof(PhotonState);
 	}
 
 	int debugMode = std::string(kernelOptions).find("-D DEBUG") != std::string::npos ? 1 : 0;
@@ -127,6 +149,9 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 		outputBufferSizes[(*outputBufferCount)++] = 2048;
 		assert(*outputBufferCount <= maxBufferCount);
 	}
+
+	assert(*inputBufferCount <= maxBufferCount);
+	assert(*outputBufferCount <= maxBufferCount);
 }
 
 
