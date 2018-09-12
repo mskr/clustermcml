@@ -78,14 +78,15 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	*inputBufferCount = simCount;
 	*outputBufferCount = simCount * 2; //TODO add T and A buffers
 
+	assert(*inputBufferCount <= maxBufferCount);
 	assert(*outputBufferCount <= maxBufferCount);
 
 	for (int i = 0; i < simCount; i++) {
 
 		assert(simulations[i].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
 
+		// Layers buffer
 		int layerCount = simulations[i].n_layers;
-
 		inputBufferSizes[i] = layerCount * sizeof(Layer);
 		Layer* layers = (Layer*)malloc(inputBufferSizes[i]);
 		layersPerSimulation[i] = layers;
@@ -100,27 +101,31 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 			};
 		}
 
+		// Reflectance buffer
 		int radialBinCount = simulations[i].det.nr;
 		int angularBinCount = simulations[i].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		uint64_t* R_ra = (uint64_t*)malloc(reflectanceBufferSize);
 		reflectancePerSimulation[i] = R_ra;
+		outputBufferSizes[i] = reflectanceBufferSize;
 
+		// Transmission buffer
 		size_t transmissionBufferSize = reflectanceBufferSize;
 		uint64_t* T_ra = (uint64_t*)malloc(transmissionBufferSize);
 		transmissionPerSimulation[i] = T_ra;
 
+		// Absorption buffer
 		int depthBinCount = simulations[i].det.nz;
 		size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(uint64_t);
 		uint64_t* A_rz = (uint64_t*)malloc(absorptionBufferSize);
 		absorptionPerSimulation[i] = A_rz;
 
+		// Photon states buffer
 		photonStatesPerSimulation[i] = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
-
-		outputBufferSizes[i] = reflectanceBufferSize;
 		outputBufferSizes[simCount + i] = totalThreadCount * sizeof(PhotonState);
 	}
 
+	// Debug buffer
 	int debugMode = std::string(kernelOptions).find("-D DEBUG") != std::string::npos ? 1 : 0;
 	if (debugMode) {
 		debugBuffer = (char*)malloc(2048);
@@ -136,10 +141,14 @@ static void freeResources() {
 	}
 	for (int i = 0; i < simCount; i++) {
 		free(photonStatesPerSimulation[i]);
+		free(absorptionPerSimulation[i]);
+		free(transmissionPerSimulation[i]);
 		free(reflectancePerSimulation[i]);
 		free(layersPerSimulation[i]);
 		free(simulations[i].layers);
 	}
+	free(absorptionPerSimulation);
+	free(transmissionPerSimulation);
 	free(reflectancePerSimulation);
 	free(layersPerSimulation);
 	free(simulations);
@@ -171,15 +180,13 @@ static bool handleDebugOutput() {
 }
 
 
-//TODO detect transmission and absorption
-//TODO write output file
-//TODO run original mcml
-//TODO compare
-
-
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
+
+		// Upload layers
+		CL(EnqueueWriteBuffer, cmdQueue, inputBuffers[simIndex], CL_FALSE, 0,
+			simulations[simIndex].n_layers * sizeof(Layer), layersPerSimulation[simIndex], 0, NULL, NULL);
 
 		// first and last layer have only n initialized and represent outer media
 		float nAbove = simulations[simIndex].layers[0].n;
@@ -193,7 +200,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		float nSum = nAbove + simulations[simIndex].layers[1].n;
 		float R_specular = (nDiff * nDiff) / (nSum * nSum);
 		
-		// init photon states
+		// Init photon states
 		for (int i = 0; i < totalThreadCount; i++) {
 			PhotonState newState = createNewPhotonState();
 			newState.weight -= R_specular;
@@ -205,33 +212,34 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		int angularBinCount = simulations[simIndex].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 
-		size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonState);
-
-		// init accumulation buffers with zeros
+		// Init accumulation buffers with zeros
 		for (int i = 0; i < radialBinCount * angularBinCount; i++) {
 			reflectancePerSimulation[simIndex][i] = 0;
 		}
 
-		int argCount = 0;
-		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nAbove);
-		CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &inputBuffers[simIndex]);
-		CL(SetKernelArg, kernel, argCount++, sizeof(int), &simulations[simIndex].n_layers);
-		CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount);
-		CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
-		CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simIndex]); // reflectance buffer
-		CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount + simIndex]); // photon state buffer
-		if (debugBuffer) {
-			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount]);
+		// Upload reflectance buffer
+		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
+			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, NULL);
+
+		{ // Set arguments
+			int argCount = 0;
+			CL(SetKernelArg, kernel, argCount++, sizeof(float), &nAbove);
+			CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &inputBuffers[simIndex]);
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &simulations[simIndex].n_layers);
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount);
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
+			CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simIndex]); // reflectance buffer
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount + simIndex]); // photon state buffer
+			if (debugBuffer) {
+				CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount * 2]);
+			}
 		}
 
 		cl_event kernelEvent, reflectanceTransferEvent;
 
-		CL(EnqueueWriteBuffer, cmdQueue, inputBuffers[simIndex], CL_FALSE, 0,
-			simulations[simIndex].n_layers * sizeof(Layer), layersPerSimulation[simIndex], 0, NULL, NULL);
-		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
-			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, NULL);
+		size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonState);
 
 		// Run kernel with optimal thread count as long as targeted number of photons allows it
 		//TODO compare perf against CUDAMCML, which does not wait for longest simulating thread,
@@ -241,24 +249,29 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		uint32_t finishedPhotonCount = 0;
 		std::cout << std::endl;
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
+			// Upload photon states
 			//TODO since buffer updates are sparse, map could be faster than write in whole
 			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
 				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
+			// Run a batch of photons
 			size_t remainingPhotonCount = targetPhotonCount - finishedPhotonCount;
 			if (remainingPhotonCount > totalThreadCount) {
 				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 			} else {
 				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &remainingPhotonCount, NULL, 0, NULL, &kernelEvent);
 			}
+			// Download photon states
 			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
 				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
 			if (debugBuffer) {
-				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
+				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount * 2], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
 			}
+			// Wait for async commands to finish
 			CL(Finish, cmdQueue);
 			if (debugBuffer) {
 				assert(!handleDebugOutput());
 			}
+			// Check for dead photons
 			for (int i = 0; i < totalThreadCount; i++) {
 				if (photonStatesPerSimulation[simIndex][i].weight == 0) {
 					finishedPhotonCount++;
@@ -273,10 +286,12 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		}
 		std::cout << std::endl;
 
+		// Download reflectance
 		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, &reflectanceTransferEvent);
 		CL(Finish, cmdQueue);
 
+		// Write output
 		if (rank == 0) {
 			cl_ulong timeStart, timeEnd;
 			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
