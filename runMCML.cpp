@@ -29,7 +29,7 @@ struct Layer {
 struct PhotonState {
 	float x, y, z; // pos [cm]
 	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
+	uint32_t weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
 };
 
@@ -38,7 +38,7 @@ static PhotonState createNewPhotonState() {
 	return {
 		0.0f, 0.0f, 0.0f, // start position
 		0.0f, 0.0f, 1.0f, // start direction
-		1.0f, // start weight
+		0xFFFFFFFFu, // start weight
 		0 // start layer index
 	};
 }
@@ -189,9 +189,12 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		// percentage of light leaving at surface without any interaction
 		// using Fesnel approximation by Schlick (no incident angle, no polarization)
 		// Q: why are the ^2 different than in Schlicks approximation?
-		float nDiff = nAbove - simulations[simIndex].layers[0].n;
-		float nSum = nAbove + simulations[simIndex].layers[0].n;
-		float R_specular = (nDiff * nDiff) / (nSum * nSum);
+		float nDiff = nAbove - simulations[simIndex].layers[1].n;
+		float nSum = nAbove + simulations[simIndex].layers[1].n;
+		float R_specularf = (nDiff) / (nSum);
+		R_specularf = R_specularf * R_specularf;
+		assert(R_specularf > 0);
+		uint32_t R_specular = 0xFFFFFFFFu * R_specularf;
 		
 		// init photon states
 		for (int i = 0; i < totalThreadCount; i++) {

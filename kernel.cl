@@ -20,7 +20,7 @@
 		const __constant char* msg = "error: assertion failed at line " STR(__LINE__);\
 		int i=0; for(; msg[i]!='\0';i++) debugBuffer[i]=msg[i];\
 		((__global t*)debugBuffer)[i] = a; ((__global t*)debugBuffer)[i+1] = b; ((__global t*)debugBuffer)[i+2] = c;\
-		return;\
+		return false;\
 	}
 #else
 #define DEBUG_BUFFER_ARG
@@ -134,7 +134,7 @@ struct Layer {
 struct PhotonState {
 	float x, y, z; // pos [cm]
 	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
+	uint weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
 };
 
@@ -194,11 +194,11 @@ float3 spin(float3 dir, float theta, float psi) {
 }
 
 // return if photon is killed and update its weight (0 == dead)
-bool roulette(uint* rng_state, float* photonWeight) {
+bool roulette(uint* rng_state, uint* photonWeight) {
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	if (rand <= 0.1f) {
-		*photonWeight *= 10.0f;
+		*photonWeight *= 10u;
 	} else {
 		*photonWeight = 0;
 		return true;
@@ -225,7 +225,7 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 // update current layer and return if photon left the simulation domain
 // the corresponding detection array is also updated
 bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
-float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
+uint* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
 	*currentLayer = otherLayer;
 	if (*currentLayer < 0) {
@@ -236,7 +236,7 @@ int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
 		i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int j = (int)floor(a / (90.0f / size_a));
-		add(&R_ra[i * size_a + j], (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&R_ra[i * size_a + j], (*photonWeight));
 		// photon is terminated
 		*photonWeight = 0;
 		return true;
@@ -265,7 +265,6 @@ __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount,
 __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
-	assert(fabs(length(normal) - 1.0f) < 0.001f, float, normal.x, normal.y, normal.z);
 	float cosIncident = dot(normal, -dir);
 	// straight transmission if refractive index is const
 	if (otherN == layers[currentLayer].n) {
@@ -286,9 +285,22 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 	}
 	//TODO cmp with CUDAMCML Reflect() method for some early out optimization
 	float incidentAngle = acos(cosIncident);
+	assert(incidentAngle <= (PI/2.0f) && incidentAngle >= 0, float, incidentAngle, incidentAngle, incidentAngle);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
-	float transmitAngle = asin(sinTransmit);
-	float fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
+	float fresnelR, transmitAngle;
+	if (sinTransmit >= 1.0f) {
+		fresnelR = 1.0f;
+		transmitAngle = PI/2.0f;
+	} else {
+		transmitAngle = asin(sinTransmit);
+		float a = incidentAngle - transmitAngle;
+		float b = incidentAngle + transmitAngle;
+		float sina = sin(a);
+		float sinb = sin(b);
+		float tana = tan(a);
+		float tanb = tan(b);
+		fresnelR = ((sina * sina) / (sinb * sinb) + (tana * tana) / (tanb * tanb)) * 0.5f;
+	}
 	*rng_state = rand_lcg(*rng_state);
 	float rand = (float)(*rng_state) * RAND_NORM;
 	*outTransmitAngle = transmitAngle;
@@ -309,7 +321,7 @@ DEBUG_BUFFER_ARG)
 {
 	__global struct PhotonState* state = &photonStates[get_global_id(0)];
 	uint rng_state = wang_hash(get_global_id(0));
-	float photonWeight = state->weight;
+	uint photonWeight = state->weight;
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
@@ -338,8 +350,8 @@ DEBUG_BUFFER_ARG)
 		} else {
 			pos += dir * s; // hop
 			// absorb and scatter in medium
-			photonWeight -= photonWeight * layers[currentLayer].absorbCoeff / interactCoeff; // drop
-			if (photonWeight < 0.0001f) {
+			photonWeight -= (photonWeight * layers[currentLayer].absorbCoeff / interactCoeff); // drop
+			if (photonWeight < 429497u) {
 				if (roulette(&rng_state, &photonWeight)) {
 					break;
 				}
