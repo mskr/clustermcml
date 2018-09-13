@@ -57,14 +57,6 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 
 
-## References
-
-[Original MCML](https://omlc.org/software/mc/)
-
-[CUDA MCML](http://www.atomic.physics.lu.se/biophotonics/research/monte-carlo-simulations/gpu-monte-carlo/)
-
-
-
 ## Code TODOs
 
 - use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs
@@ -92,3 +84,11 @@ places it in a command queue, waits for it to finish and accumulates the results
 - port to MPICH (Linux)
 
 - support more compilers
+
+
+
+## References
+
+[Original MCML](https://omlc.org/software/mc/)
+
+[CUDA MCML](http://www.atomic.physics.lu.se/biophotonics/research/monte-carlo-simulations/gpu-monte-carlo/)
