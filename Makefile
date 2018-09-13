@@ -143,7 +143,10 @@ clean:
 
 # https://aras-p.info/blog/2017/10/23/Best-unknown-MSVC-flag-d2cgsummary/
 
-# https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
+# Automatically find lib and include paths for MSVC runtime:
+# a) https://msdn.microsoft.com/en-us/library/f2ccy3wt.aspx#Anchor_1
+# b) https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
+# c) https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
 
 # https://lefticus.gitbooks.io/cpp-best-practices/content/02-Use_the_Tools_Available.html#compilers
 
