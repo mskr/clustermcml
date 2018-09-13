@@ -87,9 +87,6 @@ places it in a command queue, waits for it to finish and accumulates the results
 - add rule to Makefile to bake kernel into cpp source to make the exe self-contained
   - so you can run "clustermcml.exe sample.mci"
 
-- add rule to Makefile that can find runtime paths (via batch script) and writes them into Makefile
-  - https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
-
 - build 64 bit
 
 - port to MPICH (Linux)
