@@ -82,6 +82,7 @@ clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
 		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"clustermcml-windows-debug.exe"
 # Compile new object and generate debug database in separate file
+# (see [8] and [9] for explanation of debugging information)
 main-windows-debug.o: main.preprocessed.cpp
 	cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
 runMCML-windows-debug.o: runMCML.preprocessed.cpp
