@@ -10,7 +10,7 @@
 
 # Set the following MSVC, MPI and OpenCL paths to your setup:
 
-# Windows runtime
+# Windows runtime (see [4], [5] and [6] for automating this)
 MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428\include"
 MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt"
 MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\8.1\Include\um"
