@@ -67,9 +67,10 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
 		/P /Fi"runMCML.preprocessed.cpp"
 
 
-##################################################################################################
-# Windows, with debug information (e.g for Dr. Memory, AMD CodeXL, Nvidia NSight (?), ...)
-##################################################################################################
+################################################################################
+# Windows, with debug information
+# (e.g for [12] Visual Studio, Dr. Memory, AMD CodeXL, Nvidia NSight (?), ...)
+################################################################################
 
 # For debug build, pass this rule explicitly to make
 clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
@@ -88,9 +89,9 @@ runMCML-windows-debug.o: runMCML.preprocessed.cpp
 
 
 
-######################################################
+################################################################################
 # Windows, with OpenGL (for instant visualization)
-######################################################
+################################################################################
 
 clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o gl-windows.o glad.o
 	link main-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
@@ -135,26 +136,32 @@ glad.o: glad.c
 clean:
 	del *.exe *.o *.preprocessed.cpp *.cl.bin.* *.pdb *.ilk
 
+
+
+################################################################################
 # Interesting stuff about MSVC:
+################################################################################
 
-# https://docs.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-by-category
+# [1] https://docs.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-by-category
 
-# https://docs.microsoft.com/en-us/cpp/build/reference/linker-options
+# [2] https://docs.microsoft.com/en-us/cpp/build/reference/linker-options
 
-# https://aras-p.info/blog/2017/10/23/Best-unknown-MSVC-flag-d2cgsummary/
+# [3] https://aras-p.info/blog/2017/10/23/Best-unknown-MSVC-flag-d2cgsummary/
 
 # Automatically find lib and include paths for MSVC runtime:
-# a) https://msdn.microsoft.com/en-us/library/f2ccy3wt.aspx#Anchor_1
-# b) https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
-# c) https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
+# [4] https://msdn.microsoft.com/en-us/library/f2ccy3wt.aspx#Anchor_1
+# [5] https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
+# [6] https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
 
-# https://lefticus.gitbooks.io/cpp-best-practices/content/02-Use_the_Tools_Available.html#compilers
+# [7] https://lefticus.gitbooks.io/cpp-best-practices/content/02-Use_the_Tools_Available.html#compilers
 
-# https://stackoverflow.com/questions/4659754/the-gs-g-option-equivalent-to-vs2010-cl-compiler
+# [8] https://stackoverflow.com/questions/4659754/the-gs-g-option-equivalent-to-vs2010-cl-compiler
 
-# https://zeuxcg.org/2010/11/22/z7-everything-old-is-new-again/
+# [9] https://zeuxcg.org/2010/11/22/z7-everything-old-is-new-again/
 
-# https://randomascii.wordpress.com/2014/03/22/make-vc-compiles-fast-through-parallel-compilation/
+# [10] https://randomascii.wordpress.com/2014/03/22/make-vc-compiles-fast-through-parallel-compilation/
 
-# https://docs.microsoft.com/en-us/windows/desktop/debug/debug-help-library
+# [11] https://docs.microsoft.com/en-us/windows/desktop/debug/debug-help-library
 # C:\Program Files (x86)\Windows Kits\10\Debuggers
+
+# [12] https://docs.microsoft.com/en-us/visualstudio/debugger/how-to-debug-an-executable-not-part-of-a-visual-studio-solution?view=vs-2017
