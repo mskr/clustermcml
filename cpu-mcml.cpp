@@ -276,7 +276,6 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 //TODO integrate this as option into main.cpp
 
 int main(int nargs, char* args[]) {
-	std::cout << "hi"  << std::endl;
 	assert(nargs == 2);
 	char* filename = args[1];
 	std::cout << filename << std::endl;

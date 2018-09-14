@@ -227,13 +227,10 @@ __kernel void simpson(float ha, float hb, __global float* out) {
 // Monte carlo approximation of PI
 __kernel void mcpi(const int npoints, __global uint* out) {
 	size_t i = get_global_id(0);
-	uint rng_state = wang_hash(i);
 	uint count = 0;
 	for (int j = 0; j < npoints; j++) {
-		rng_state = rand_xorshift(rng_state);
-		float x = (float)rng_state * RAND_NORM;
-		rng_state = rand_xorshift(rng_state);
-		float y = (float)rng_state * RAND_NORM;
+		float x = RandomNum();
+		float y = RandomNum();
 		// check if inside quarter unit circle
 		if (x * x + y * y < 1.0f) {
 			count++;
@@ -286,8 +283,7 @@ float intersect(float3 pos, float3 dir, struct Boundary bound) {
 // more probable to be small the greater g is and
 // evenly distributed if g == 0
 float sampleHenyeyGreenstein(uint* rng_state, float g) {
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * RAND_NORM;
+	float rand = RandomNum();
 	if (g != 0.0f) {
 		return (1.0f / (2.0f * g)) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
@@ -326,8 +322,7 @@ float3 spin(float3 dir, float theta, float psi) {
 
 // return if photon is killed and update its weight (0 == dead)
 bool roulette(uint* rng_state, float* photonWeight) {
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * RAND_NORM;
+	float rand = RandomNum();
 	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
 	} else {
@@ -339,15 +334,17 @@ bool roulette(uint* rng_state, float* photonWeight) {
 
 // return if there is an intersection in the photon step and write according parameters
 bool findIntersection(float3 pos, float3 dir, float s, __global struct Layer* layers, int currentLayer,
-__global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection) {
+__global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection, bool* topOrBottom) {
 	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].top)) >= 0 && *pathLenToIntersection <= s) {
 		*intersectedBoundary = &layers[currentLayer].top;
 		*otherLayer = currentLayer - 1;
+		*topOrBottom = true;
 		return true;
 	}
 	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].bottom)) >= 0 && *pathLenToIntersection <= s) {
 		*intersectedBoundary = &layers[currentLayer].bottom;
 		*otherLayer = currentLayer + 1;
+		*topOrBottom = false;
 		return true;
 	}
 	return false;
@@ -393,7 +390,7 @@ void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
 // return if photon is reflected at boundary
 bool decideReflectOrTransmit(uint* rng_state, float3 dir,
 __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
-__global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
+__global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
 	float cosIncident = dot(normal, -dir);
@@ -408,10 +405,17 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 	if (layers[currentLayer].n < otherN && otherN * otherN * (1.0f - cosIncident * cosIncident)) {
 		return true;
 	}
+	float cos_crit0 = layers[currentLayer].n > otherN ? sqrt(1.0f - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0f;
+	float cos_crit1 = layers[currentLayer].n > otherN ? sqrt(1.0 - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0;
+	if (topOrBottom) {
+		if (cosIncident <= cos_crit0) return true; 
+	} else {
+		if (cosIncident <= cos_crit1) return true;
+	}
+	//TODO We still transmit too much photons! Find a definite state where mcml does not transmit but we do (just output the index of the photon).
 	if (cosIncident == 1.0f) {
 		float r = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
-		*rng_state = rand_xorshift(*rng_state);
-		float rand = (float)(*rng_state) * RAND_NORM;
+		float rand = RandomNum();
 		return (rand < r * r);
 	}
 	float incidentAngle = acos(cosIncident);
@@ -424,8 +428,7 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 		transmitAngle = asin(sinTransmit);
 		fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
 	}
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * RAND_NORM;
+	float rand = RandomNum();
 	*outTransmitAngle = transmitAngle;
 	*outCosIncident = cosIncident;
 	*outN1 = layers[currentLayer].n;
@@ -444,8 +447,8 @@ volatile __global ulong* R_ra,
 __global struct PhotonState* photonStates
 DEBUG_BUFFER_ARG)
 {
+	uint rng_state = 0;
 	__global struct PhotonState* state = &photonStates[get_global_id(0)];
-	uint rng_state = wang_hash(get_global_id(0));
 	float photonWeight = state->weight;
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
@@ -454,19 +457,19 @@ DEBUG_BUFFER_ARG)
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
-		rng_state = rand_xorshift(rng_state);
-		float rand = (float)rng_state * RAND_NORM;
+		float rand = RandomNum();
 		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
 		// test ray-boundary-intersection
 		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0;
-		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection)) {
+		bool topOrBottom = false;
+		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
 			pos += dir * pathLenToIntersection; // hop (unfinished part of s can be ignored)
 
 			//TODO drop some weight here?????????????????????????????????????????????????????????????????????????????
 
 			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
 			// transmit or reflect at boundary
-			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, &transmitAngle, &cosIncident, &n1, &n2)) {
+			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, intersectedBoundary);
 			} else {
 				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) {
@@ -487,8 +490,7 @@ DEBUG_BUFFER_ARG)
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
 			// for g==0 theta has most values at pi/2, which is correct???
 			float theta = acos(cosTheta);
-			rng_state = rand_xorshift(rng_state);
-			rand = (float)rng_state * RAND_NORM;
+			rand = RandomNum();
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
