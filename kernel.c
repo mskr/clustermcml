@@ -374,11 +374,6 @@ DEBUG_BUFFER_ARG)
 			pos += dir * s; // hop
 			// absorb and scatter in medium
 			photonWeight -= photonWeight * layers[currentLayer].absorbCoeff / interactCoeff; // drop
-			if (photonWeight < 0.0001f) {
-				if (roulette(&rng_state, &photonWeight)) {
-					break;
-				}
-			}
 			// spin
 			// for g==0 cosTheta is evenly distributed
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
@@ -389,6 +384,11 @@ DEBUG_BUFFER_ARG)
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
+			if (photonWeight < 0.0001f) {
+				if (roulette(&rng_state, &photonWeight)) {
+					break;
+				}
+			}
 		}
 	}
 	// save state for the next round
