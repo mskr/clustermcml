@@ -156,27 +156,13 @@ static void freeResources() {
 
 
 static bool handleDebugOutput() {
-	const char* error = "error";
-	bool isError = false;
-	int j = 0;
-	// print printable ascii chars if starting with "error"
-	for (; debugBuffer[j] >= 32 && debugBuffer[j] <= 126; j++) {
-		if (j <= 4 && debugBuffer[j] != error[j]) break;
-		if (j == 4) {
-			std::cout << error;
-			isError = true;
-		}
-		if (j > 4) std::cout << debugBuffer[j];
+	std::cout << std::endl;
+	//TODO print everything as hex view until reaching some unique end symbol
+	for (int k = 0; k < 2048/4; k++) { // print as floats
+		std::cout << ((float*)debugBuffer)[k] << " ";
 	}
-	if (isError) {
-		std::cout << std::endl;
-		//TODO print everything as hex view until reaching some unique end symbol
-		for (int k = 0; k < 3; k++) { // print as floats
-			std::cout << ((float*)debugBuffer)[j+k] << " ";
-		}
-		std::cout << std::endl;
-	}
-	return isError;
+	std::cout << std::endl;
+	return true;
 }
 
 

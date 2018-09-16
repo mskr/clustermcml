@@ -42,7 +42,7 @@ unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
 // An assert macro that writes error message to host buffer and returns from current function
 //TODO dump the whole stack frame when assertions fail
 #ifdef DEBUG
-#define DEBUG_BUFFER_ARG ,volatile __global uint* debugBuffer
+#define DEBUG_BUFFER_ARG ,__global char* debugBuffer
 #define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x) //The extra level of indirection will allow the preprocessor to expand the macros before they are converted to strings.
@@ -353,7 +353,13 @@ DEBUG_BUFFER_ARG)
 		// randomize step length
 		rng_state = rand_xorshift(rng_state);
 		float rand = (float)rng_state * RAND_NORM;
-		float s = -log(rand) / interactCoeff; // (noted that first s for first thread becomes infinity with current rng)
+
+		// noted that first s for first thread becomes infinity with current rng
+		// - but doesnt look like it on Radeon HD 5850
+		float s = -log(rand) / interactCoeff;
+		// output step lengths of as many threads as fit into debug buffer
+		// if (get_global_id(0) < 2048/4) ((__global float*)debugBuffer)[get_global_id(0)] = (float) s;
+
 		// test ray-boundary-intersection
 		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0;
 		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection)) {
