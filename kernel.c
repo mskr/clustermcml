@@ -336,8 +336,6 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 // control time spent on the GPU in each round
 #define MAX_ITERATIONS 1000
 
-#define MAX_BOUNCES 2
-
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, float delta_r, 
 volatile __global ulong* R_ra,
@@ -350,7 +348,6 @@ DEBUG_BUFFER_ARG)
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
-	int bounces = 0;
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
@@ -392,11 +389,6 @@ DEBUG_BUFFER_ARG)
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
-		}
-		bounces++;
-		if (bounces == MAX_BOUNCES) {
-			photonWeight = 0;
-			break;
 		}
 	}
 	// save state for the next round
