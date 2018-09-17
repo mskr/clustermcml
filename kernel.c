@@ -64,6 +64,8 @@ unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
 // Hashes are designed to go wide, i.e. have good distributions across initial seeds
 // Using thread index as seed, hashes map better to the GPU
 // Hashed thread index can also be used as seed for the PRNGs
+// Caution: do not initialize xorshift with 0 as the sequence stays 0
+// Wang hash returns 0 for seed==61
 
 // For normalized random number in [0, 1) use: (float)rng_state * RAND_NORM
 // rng_state can be max 0xFFFFFFFF==4294967295 => rand in [0,1)
@@ -167,6 +169,7 @@ struct PhotonState {
 	float dx, dy, dz; // dir
 	float weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
+	unsigned int rngState;
 };
 
 // find ray-plane intersection point
@@ -239,15 +242,17 @@ bool roulette(uint* rng_state, float* photonWeight) {
 
 // return if there is an intersection in the photon step and write according parameters
 bool findIntersection(float3 pos, float3 dir, float s, __global struct Layer* layers, int currentLayer,
-__global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection) {
+__global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection, bool* topOrBottom) {
 	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].top)) >= 0 && *pathLenToIntersection <= s) {
 		*intersectedBoundary = &layers[currentLayer].top;
 		*otherLayer = currentLayer - 1;
+		*topOrBottom = true;
 		return true;
 	}
 	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].bottom)) >= 0 && *pathLenToIntersection <= s) {
 		*intersectedBoundary = &layers[currentLayer].bottom;
 		*otherLayer = currentLayer + 1;
+		*topOrBottom = false;
 		return true;
 	}
 	return false;
@@ -293,10 +298,11 @@ void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
 // return if photon is reflected at boundary
 bool decideReflectOrTransmit(uint* rng_state, float3 dir,
 __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
-__global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
+__global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
 	float cosIncident = dot(normal, -dir);
+	float fresnelR, transmitAngle;
 	// straight transmission if refractive index is const
 	if (otherN == layers[currentLayer].n) {
 		*outTransmitAngle = 0;
@@ -308,24 +314,28 @@ __global struct Boundary* intersectedBoundary, float* outTransmitAngle, float* o
 	if (layers[currentLayer].n < otherN && otherN * otherN * (1.0f - cosIncident * cosIncident)) {
 		return true;
 	}
-	if (cosIncident == 1.0f) {
-		float r = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
-		*rng_state = rand_xorshift(*rng_state);
-		float rand = (float)(*rng_state) * RAND_NORM;
-		return (rand < r * r);
-	}
 	float incidentAngle = acos(cosIncident);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
-	float fresnelR, transmitAngle;
-	if (sinTransmit >= 1.0f) {
+	float cos_crit0 = layers[currentLayer].n > otherN ? sqrt(1.0f - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0f;
+	float cos_crit1 = layers[currentLayer].n > otherN ? sqrt(1.0 - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0;
+	if (topOrBottom && cosIncident <= cos_crit0) {
+		fresnelR = 1.0f;
+	} else if (cosIncident <= cos_crit1) {
+		fresnelR = 1.0f;
+	}
+	//TODO We still transmit too much photons! Find a definite state where mcml does not transmit but we do (just output the index of the photon).
+	else if (cosIncident == 1.0f) {
+		fresnelR = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
+		fresnelR *= fresnelR;
+	}
+	else if (sinTransmit >= 1.0f) {
 		transmitAngle = PI/2.0f;
 		fresnelR = 1.0f;
 	} else {
 		transmitAngle = asin(sinTransmit);
 		fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
 	}
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * RAND_NORM;
+	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	*outTransmitAngle = transmitAngle;
 	*outCosIncident = cosIncident;
 	*outN1 = layers[currentLayer].n;
@@ -343,7 +353,8 @@ __global struct PhotonState* photonStates
 DEBUG_BUFFER_ARG)
 {
 	__global struct PhotonState* state = &photonStates[get_global_id(0)];
-	uint rng_state = wang_hash(get_global_id(0));
+	uint rng_state = state->rngState;
+	if (rng_state == 0) rng_state = wang_hash(get_global_id(0));
 	float photonWeight = state->weight;
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
@@ -351,25 +362,25 @@ DEBUG_BUFFER_ARG)
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 		// randomize step length
-		rng_state = rand_xorshift(rng_state);
+		// prevent being stuck with xorshift(0)==0 by fallback to lcg
+		rng_state = (rng_state > 0) ? rand_xorshift(rng_state) : rand_lcg(rng_state);
 		float rand = (float)rng_state * RAND_NORM;
-
-		// noted that first s for first thread becomes infinity with current rng
-		// - but doesnt look like it on Radeon HD 5850
 		float s = -log(rand) / interactCoeff;
 		// output step lengths of as many threads as fit into debug buffer
-		// if (get_global_id(0) < 2048/4) ((__global float*)debugBuffer)[get_global_id(0)] = (float) s;
+		// if (get_global_id(0) < 2048/4)
+		// 	((__global float*)debugBuffer)[get_global_id(0)] = s;
+		// break;
 
 		// test ray-boundary-intersection
-		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0;
-		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection)) {
+		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0; bool topOrBottom = 0;
+		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
 			pos += dir * pathLenToIntersection; // hop (unfinished part of s can be ignored)
 
 			//TODO drop some weight here?????????????????????????????????????????????????????????????????????????????
 
 			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
 			// transmit or reflect at boundary
-			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, &transmitAngle, &cosIncident, &n1, &n2)) {
+			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, intersectedBoundary);
 			} else {
 				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) {
@@ -402,6 +413,7 @@ DEBUG_BUFFER_ARG)
 	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
 	state->weight = photonWeight;
 	state->layerIndex = currentLayer;
+	state->rngState = rng_state;
 }
 
 // Basic monte carlo photon transport walkthrough

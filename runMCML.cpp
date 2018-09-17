@@ -31,6 +31,7 @@ struct PhotonState {
 	float dx, dy, dz; // dir
 	float weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
+	unsigned int rngState;
 };
 
 
@@ -39,7 +40,8 @@ static PhotonState createNewPhotonState() {
 		0.0f, 0.0f, 0.0f, // start position
 		0.0f, 0.0f, 1.0f, // start direction
 		1.0f, // start weight
-		0 // start layer index
+		0, // start layer index
+		0 // dummy rng state
 	};
 }
 
@@ -158,9 +160,15 @@ static void freeResources() {
 static bool handleDebugOutput() {
 	std::cout << std::endl;
 	//TODO print everything as hex view until reaching some unique end symbol
-	for (int k = 0; k < 2048/4; k++) { // print as floats
-		std::cout << ((float*)debugBuffer)[k] << " ";
+	int n = 2048/4;
+	float sum = 0.0f;
+	for (int k = 0; k < n; k++) { // print as floats
+		float f = ((float*)debugBuffer)[k];
+		sum += f;
+		std::cout << f << " ";
 	}
+	std::cout << "sum=" << sum << std::endl;
+	std::cout << "average=" << (sum / n) << std::endl;
 	std::cout << std::endl;
 	return true;
 }
@@ -255,7 +263,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			// Wait for async commands to finish
 			CL(Finish, cmdQueue);
 			if (debugBuffer) {
-				assert(!handleDebugOutput());
+				if (handleDebugOutput()) exit(1);
 			}
 			// Check for dead photons
 			for (int i = 0; i < totalThreadCount; i++) {
