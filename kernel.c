@@ -262,7 +262,7 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 // the corresponding detection array is also updated
 bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
-int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
+int size_r, int size_a, float delta_r, volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
 	*currentLayer = otherLayer;
 	if (*currentLayer < 0) {
 		// photon escaped at top => record diffuse reflectance
@@ -277,6 +277,14 @@ int size_r, int size_a, float delta_r, volatile __global ulong* R_ra) {
 		*photonWeight = 0;
 		return true;
 	} else if (*currentLayer >= layerCount) {
+		// photon escaped at bottom => record transmittance
+		// calc indices r,a
+		float r = length(pos.xy);
+		int i = (int)floor(r / delta_r);
+		i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+		float a = transmitAngle / (2.0f * PI) * 360.0f;
+		int j = (int)floor(a / (90.0f / size_a));
+		add(&T_ra[i * size_a + j], (uint)(*photonWeight * 0xFFFFFFFF));
 		*photonWeight = 0;
 		return true;
 	}
@@ -348,7 +356,7 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, float delta_r, 
-volatile __global ulong* R_ra,
+volatile __global ulong* R_ra, volatile __global ulong* T_ra,
 __global struct PhotonState* photonStates
 DEBUG_BUFFER_ARG)
 {
@@ -383,7 +391,7 @@ DEBUG_BUFFER_ARG)
 			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, intersectedBoundary);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra)) {
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra, T_ra)) {
 					break;
 				}
 			}

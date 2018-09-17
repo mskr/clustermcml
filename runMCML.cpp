@@ -51,13 +51,14 @@ const char* getCLKernelName() {
 }
 
 
-static SimulationStruct* simulations = 0;
 static int simCount = 0;
+static SimulationStruct* simulations = 0;
 static Layer** layersPerSimulation = 0;
 static uint64_t** reflectancePerSimulation = 0;
 static uint64_t** transmissionPerSimulation = 0;
 static uint64_t** absorptionPerSimulation = 0;
-static PhotonState** photonStatesPerSimulation = 0;
+
+static PhotonState* stateBuffer = 0;
 static char* debugBuffer = 0;
 
 
@@ -75,56 +76,57 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	transmissionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	absorptionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
-	photonStatesPerSimulation = (PhotonState**)malloc(simCount * sizeof(PhotonState*));
+
+	// Photon states buffer
+	stateBuffer = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
+	outputBufferSizes[0] = totalThreadCount * sizeof(PhotonState);
 
 	*inputBufferCount = simCount;
-	*outputBufferCount = simCount * 2; //TODO add T and A buffers
+	*outputBufferCount = 1 + 3 * simCount;
 
 	assert(*inputBufferCount <= maxBufferCount);
 	assert(*outputBufferCount <= maxBufferCount);
 
-	for (int i = 0; i < simCount; i++) {
+	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
-		assert(simulations[i].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
+		assert(simulations[simIndex].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
 
 		// Layers buffer
-		int layerCount = simulations[i].n_layers;
-		inputBufferSizes[i] = layerCount * sizeof(Layer);
-		Layer* layers = (Layer*)malloc(inputBufferSizes[i]);
-		layersPerSimulation[i] = layers;
+		int layerCount = simulations[simIndex].n_layers;
+		inputBufferSizes[simIndex] = layerCount * sizeof(Layer);
+		Layer* layers = (Layer*)malloc(layerCount * sizeof(Layer));
+		layersPerSimulation[simIndex] = layers;
 		for (int j = 1; j <= layerCount; j++) {
 			layers[j - 1] = {
-				simulations[i].layers[j].mua,
-				1.0f / simulations[i].layers[j].mutr - simulations[i].layers[j].mua,
-				simulations[i].layers[j].g,
-				simulations[i].layers[j].n,
-				Boundary{simulations[i].layers[j].z_min, 0.0f, 0.0f, 1.0f},
-				Boundary{simulations[i].layers[j].z_max, 0.0f, 0.0f, -1.0f},
+				simulations[simIndex].layers[j].mua,
+				1.0f / simulations[simIndex].layers[j].mutr - simulations[simIndex].layers[j].mua,
+				simulations[simIndex].layers[j].g,
+				simulations[simIndex].layers[j].n,
+				Boundary{simulations[simIndex].layers[j].z_min, 0.0f, 0.0f, 1.0f},
+				Boundary{simulations[simIndex].layers[j].z_max, 0.0f, 0.0f, -1.0f},
 			};
 		}
 
 		// Reflectance buffer
-		int radialBinCount = simulations[i].det.nr;
-		int angularBinCount = simulations[i].det.na;
+		int radialBinCount = simulations[simIndex].det.nr;
+		int angularBinCount = simulations[simIndex].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		uint64_t* R_ra = (uint64_t*)malloc(reflectanceBufferSize);
-		reflectancePerSimulation[i] = R_ra;
-		outputBufferSizes[i] = reflectanceBufferSize;
+		reflectancePerSimulation[simIndex] = R_ra;
+		outputBufferSizes[1 + simIndex] = reflectanceBufferSize;
 
 		// Transmission buffer
 		size_t transmissionBufferSize = reflectanceBufferSize;
 		uint64_t* T_ra = (uint64_t*)malloc(transmissionBufferSize);
-		transmissionPerSimulation[i] = T_ra;
+		transmissionPerSimulation[simIndex] = T_ra;
+		outputBufferSizes[1 + simCount + simIndex] = transmissionBufferSize;
 
 		// Absorption buffer
-		int depthBinCount = simulations[i].det.nz;
+		int depthBinCount = simulations[simIndex].det.nz;
 		size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(uint64_t);
 		uint64_t* A_rz = (uint64_t*)malloc(absorptionBufferSize);
-		absorptionPerSimulation[i] = A_rz;
-
-		// Photon states buffer
-		photonStatesPerSimulation[i] = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
-		outputBufferSizes[simCount + i] = totalThreadCount * sizeof(PhotonState);
+		absorptionPerSimulation[simIndex] = A_rz;
+		outputBufferSizes[1 + 2 * simCount + simIndex] = absorptionBufferSize;
 	}
 
 	// Debug buffer
@@ -142,7 +144,7 @@ static void freeResources() {
 		free(debugBuffer);
 	}
 	for (int i = 0; i < simCount; i++) {
-		free(photonStatesPerSimulation[i]);
+		free(stateBuffer);
 		free(absorptionPerSimulation[i]);
 		free(transmissionPerSimulation[i]);
 		free(reflectancePerSimulation[i]);
@@ -178,6 +180,8 @@ void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
+		//TODO acc radiance varies based on kernel size
+
 		// Upload layers
 		CL(EnqueueWriteBuffer, cmdQueue, inputBuffers[simIndex], CL_FALSE, 0,
 			simulations[simIndex].n_layers * sizeof(Layer), layersPerSimulation[simIndex], 0, NULL, NULL);
@@ -198,22 +202,27 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		for (int i = 0; i < totalThreadCount; i++) {
 			PhotonState newState = createNewPhotonState();
 			newState.weight -= R_specular;
-			photonStatesPerSimulation[simIndex][i] = newState;
+			stateBuffer[i] = newState;
 		}
 
+		// Get RAT buffer info
 		int radialBinCount = simulations[simIndex].det.nr;
 		float radialBinCentimeters = simulations[simIndex].det.dr;
 		int angularBinCount = simulations[simIndex].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
+		size_t transmissionBufferSize = reflectanceBufferSize;
 
-		// Init accumulation buffers with zeros
+		// Init RAT buffers with zeros
 		for (int i = 0; i < radialBinCount * angularBinCount; i++) {
 			reflectancePerSimulation[simIndex][i] = 0;
+			transmissionPerSimulation[simIndex][i] = 0;
 		}
 
-		// Upload reflectance buffer
-		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
+		// Upload RAT buffers
+		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[1 + simIndex], CL_FALSE, 0,
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, NULL);
+		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[1 + simCount + simIndex], CL_FALSE, 0,
+			transmissionBufferSize, transmissionPerSimulation[simIndex], 0, NULL, NULL);
 
 		{ // Set arguments
 			int argCount = 0;
@@ -224,10 +233,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount);
 			CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
 			CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
-			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simIndex]); // reflectance buffer
-			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount + simIndex]); // photon state buffer
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + simIndex]); // R
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + simCount + simIndex]); // T
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[0]); // photon state buffer
 			if (debugBuffer) {
-				CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[simCount * 2]);
+				CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + 3 * simCount]);
 			}
 		}
 
@@ -245,8 +255,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
 			// Upload photon states
 			//TODO since buffer updates are sparse, map could be faster than write in whole
-			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
-				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
+			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
+				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
 			// Run a batch of photons
 			size_t remainingPhotonCount = targetPhotonCount - finishedPhotonCount;
 			if (remainingPhotonCount > totalThreadCount) {
@@ -255,10 +265,10 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &remainingPhotonCount, NULL, 0, NULL, &kernelEvent);
 			}
 			// Download photon states
-			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount + simIndex], CL_FALSE, 0,
-				photonStateBufferSize, photonStatesPerSimulation[simIndex], 0, NULL, NULL);
+			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
+				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
 			if (debugBuffer) {
-				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simCount * 2], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
+				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + 3 * simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
 			}
 			// Wait for async commands to finish
 			CL(Finish, cmdQueue);
@@ -267,11 +277,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			}
 			// Check for dead photons
 			for (int i = 0; i < totalThreadCount; i++) {
-				if (photonStatesPerSimulation[simIndex][i].weight == 0) {
+				if (stateBuffer[i].weight == 0) {
 					finishedPhotonCount++;
 					PhotonState newState = createNewPhotonState();
 					newState.weight -= R_specular;
-					photonStatesPerSimulation[simIndex][i] = newState;
+					stateBuffer[i] = newState;
 				}
 			}
 			if (rank == 0) {
@@ -280,9 +290,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		}
 		std::cout << std::endl;
 
-		// Download reflectance
-		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[simIndex], CL_FALSE, 0,
+		// Download RAT
+		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + simIndex], CL_FALSE, 0,
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, &reflectanceTransferEvent);
+		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + simCount + simIndex], CL_FALSE, 0,
+			transmissionBufferSize, transmissionPerSimulation[simIndex], 0, NULL, NULL);
 		CL(Finish, cmdQueue);
 
 		// Write output
