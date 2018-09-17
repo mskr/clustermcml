@@ -258,12 +258,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
 			// Run a batch of photons
-			size_t remainingPhotonCount = targetPhotonCount - finishedPhotonCount;
-			if (remainingPhotonCount > totalThreadCount) {
-				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
-			} else {
-				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &remainingPhotonCount, NULL, 0, NULL, &kernelEvent);
-			}
+			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 			// Download photon states
 			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
@@ -279,9 +274,12 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			for (int i = 0; i < totalThreadCount; i++) {
 				if (stateBuffer[i].weight == 0) {
 					finishedPhotonCount++;
-					PhotonState newState = createNewPhotonState();
-					newState.weight -= R_specular;
-					stateBuffer[i] = newState;
+					// Launch new only if next round cannot overachieve
+					if (finishedPhotonCount + totalThreadCount <= targetPhotonCount) {
+						PhotonState newState = createNewPhotonState();
+						newState.weight -= R_specular;
+						stateBuffer[i] = newState;
+					}
 				}
 			}
 			if (rank == 0) {

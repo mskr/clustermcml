@@ -364,6 +364,10 @@ DEBUG_BUFFER_ARG)
 	uint rng_state = state->rngState;
 	if (rng_state == 0) rng_state = wang_hash(get_global_id(0));
 	float photonWeight = state->weight;
+	if (photonWeight == 0) {
+		// This photon was not restarted because enough are in the pipeline
+		return; // nothing to do
+	}
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
