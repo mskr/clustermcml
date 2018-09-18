@@ -11,30 +11,21 @@
 #include "clcheck.h"
 #endif
 
+#include "BoundaryLayerPhoton.h"
 
-//TODO share structs with kernel via header
-
-struct Boundary {
-	float z;
-	float nx, ny, nz;
-};
-
-struct Layer {
-	float absorbCoeff;
-	float scatterCoeff;
-	float g; // anisotropy
-	float n; // refractive index
-	struct Boundary top;
-	struct Boundary bottom;
-};
-
-struct PhotonState {
-	float x, y, z; // pos [cm]
-	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
-	int layerIndex; // current layer
-};
-
+#ifdef CL2CPP
+#define cl_int int
+#define cl_context int
+#define cl_command_queue int
+#define cl_kernel int
+#define cl_mem int
+// link or include?
+// void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
+// 	int size_r, int size_a, float delta_r, 
+// 	volatile uint64_t* R_ra,
+// 	struct PhotonState* photonStates);
+#include "kernel.c"
+#endif
 
 static PhotonState createNewPhotonState() {
 	return {
@@ -181,21 +172,6 @@ static bool handleDebugOutput() {
 	return isError;
 }
 
-
-
-#ifdef CL2CPP
-#define cl_int int
-#define cl_context int
-#define cl_command_queue int
-#define cl_kernel int
-#define cl_mem int
-// link or include?
-// void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
-// 	int size_r, int size_a, float delta_r, 
-// 	volatile uint64_t* R_ra,
-// 	struct PhotonState* photonStates);
-#include "kernel.c"
-#endif
 
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {

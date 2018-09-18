@@ -9,29 +9,7 @@
 #define DEBUG
 #include "clcheck.h"
 
-
-//TODO share structs with kernel via header
-
-struct Boundary {
-	float z;
-	float nx, ny, nz;
-};
-
-struct Layer {
-	float absorbCoeff;
-	float scatterCoeff;
-	float g; // anisotropy
-	float n; // refractive index
-	struct Boundary top;
-	struct Boundary bottom;
-};
-
-struct PhotonState {
-	float x, y, z; // pos [cm]
-	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
-	int layerIndex; // current layer
-};
+#include "BoundaryLayerPhoton.h"
 
 
 static PhotonState createNewPhotonState() {
