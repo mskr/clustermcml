@@ -6,7 +6,7 @@
 
 //#include "random.cl" //TODO compile with -I flag, since this file can end up in temp folder
 
-#ifdef CL2CPP
+#ifdef CL2CPU
 #include <stdint.h> // uint32_t, uint64_t
 #define GLM_FORCE_SWIZZLE 
 #include "glm/glm.hpp"
@@ -243,7 +243,6 @@ __kernel void mcpi(const int npoints, __global uint* out) {
 
 /***** MCML *****/
 
-#ifndef CL2CPP
 //TODO Boundary with customizable shapes
 // Q: Which shapes make sense with respect to layers intersecting each other?
 struct Boundary {
@@ -268,7 +267,6 @@ struct PhotonState {
 	unsigned int rngState;
 	bool isDead;
 };
-#endif
 
 // find ray-plane intersection point
 // if found return path length to intersection
