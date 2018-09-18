@@ -10,14 +10,13 @@
 
 # Set the following MSVC, MPI and OpenCL paths to your setup:
 
-# Windows runtime
-MSVC = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\bin\Hostx86\x86"
-MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\include"
-MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\ucrt"
-MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\um"
-MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\shared"
-MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128/lib/x86"
-MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.16299.0\ucrt\x86"
+# Windows runtime (see [4], [5] and [6] for automating this)
+MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428\include"
+MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt"
+MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\8.1\Include\um"
+MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\8.1\Include\shared"
+MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428/lib/x86"
+MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x86"
 MSVC_LIB_UM = "C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x86"
 
 # OpenCL
@@ -33,14 +32,14 @@ MPI_LIBDIR = "C:\Program Files (x86)\Microsoft SDKs\MPI\Lib\x86"
 MPI_LIBFILE = "msmpi.lib"
 
 cpu-mcml.exe: cpu-mcml.o
-	$(MSVC)/link cpu-mcml.o \
+	link cpu-mcml.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
 		/OUT:"cpu-mcml.exe"
 
 cpu-mcml.o: cpu-mcml.cpp kernel.c
-	$(MSVC)/cl cpu-mcml.cpp /c \
+	cl cpu-mcml.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/D"CL2CPP" \
@@ -48,7 +47,7 @@ cpu-mcml.o: cpu-mcml.cpp kernel.c
 
 # Link objects
 clustermcml-windows.exe: main-windows.o runMCML-windows.o
-	$(MSVC)/link main-windows.o runMCML-windows.o \
+	link main-windows.o runMCML-windows.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -58,11 +57,11 @@ clustermcml-windows.exe: main-windows.o runMCML-windows.o
 
 # Compile new object
 main-windows.o: main.preprocessed.cpp
-	$(MSVC)/cl main.preprocessed.cpp /c /Fo"main-windows.o"
+	cl main.preprocessed.cpp /c /Fo"main-windows.o"
 
 # Preprocess source
 main.preprocessed.cpp: main.cpp
-	$(MSVC)/cl main.cpp /c \
+	cl main.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
@@ -71,10 +70,10 @@ main.preprocessed.cpp: main.cpp
 
 # Compile the code that should setup and run the CL kernel
 runMCML-windows.o: runMCML.preprocessed.cpp
-	$(MSVC)/cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
+	cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
 
 runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
-	$(MSVC)/cl runMCML.cpp /c \
+	cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
@@ -82,13 +81,14 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
 		/P /Fi"runMCML.preprocessed.cpp"
 
 
-##################################################################################################
-# Windows, with debug information (e.g for Dr. Memory, AMD CodeXL, Nvidia NSight (?), ...)
-##################################################################################################
+################################################################################
+# Windows, with debug information
+# (e.g for [12] Visual Studio, Dr. Memory, AMD CodeXL, Nvidia NSight (?), ...)
+################################################################################
 
 # For debug build, pass this rule explicitly to make
 clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
-	$(MSVC)/link main-windows-debug.o runMCML-windows-debug.o /DEBUG \
+	link main-windows-debug.o runMCML-windows-debug.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -96,19 +96,20 @@ clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
 		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"clustermcml-windows-debug.exe"
 # Compile new object and generate debug database in separate file
+# (see [8] and [9] for explanation of debugging information)
 main-windows-debug.o: main.preprocessed.cpp
-	$(MSVC)/cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
+	cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
 runMCML-windows-debug.o: runMCML.preprocessed.cpp
-	$(MSVC)/cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
+	cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
 
 
 
-######################################################
+################################################################################
 # Windows, with OpenGL (for instant visualization)
-######################################################
+################################################################################
 
 clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o gl-windows.o glad.o
-	$(MSVC)/link main-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
+	link main-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) "user32.lib" "gdi32.lib" "opengl32.lib" \
@@ -117,9 +118,9 @@ clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o gl-windows.o gla
 		/OUT:"clustermcml-gl-windows.exe"
 
 main-gl-windows.o: main-gl.preprocessed.cpp
-	$(MSVC)/cl main-gl.preprocessed.cpp /c /Fo"main-gl-windows.o"
+	cl main-gl.preprocessed.cpp /c /Fo"main-gl-windows.o"
 main-gl.preprocessed.cpp: main.cpp
-	$(MSVC)/cl main.cpp /c \
+	cl main.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
@@ -128,9 +129,9 @@ main-gl.preprocessed.cpp: main.cpp
 		/P /Fi"main-gl.preprocessed.cpp"
 
 gl-windows.o: gl-windows.preprocessed.cpp
-	$(MSVC)/cl gl-windows.preprocessed.cpp /c /Fo"gl-windows.o"
+	cl gl-windows.preprocessed.cpp /c /Fo"gl-windows.o"
 gl-windows.preprocessed.cpp: gl-windows.cpp
-	$(MSVC)/cl gl-windows.cpp /c \
+	cl gl-windows.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(MSVC_INCLUDE_UM) \
@@ -139,7 +140,7 @@ gl-windows.preprocessed.cpp: gl-windows.cpp
 
 # GL loader generated with http://glad.dav1d.de/
 glad.o: glad.c
-	$(MSVC)/cl glad.c /c \
+	cl glad.c /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(MSVC_INCLUDE_UM) \
@@ -150,23 +151,32 @@ glad.o: glad.c
 clean:
 	del *.exe *.o *.preprocessed.cpp *.cl.bin.* *.pdb *.ilk
 
+
+
+################################################################################
 # Interesting stuff about MSVC:
+################################################################################
 
-# https://docs.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-by-category
+# [1] https://docs.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-by-category
 
-# https://docs.microsoft.com/en-us/cpp/build/reference/linker-options
+# [2] https://docs.microsoft.com/en-us/cpp/build/reference/linker-options
 
-# https://aras-p.info/blog/2017/10/23/Best-unknown-MSVC-flag-d2cgsummary/
+# [3] https://aras-p.info/blog/2017/10/23/Best-unknown-MSVC-flag-d2cgsummary/
 
-# https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
+# Automatically find lib and include paths for MSVC runtime:
+# [4] https://msdn.microsoft.com/en-us/library/f2ccy3wt.aspx#Anchor_1
+# [5] https://gist.github.com/FelixK15/3be6a2779c8d3f1f1c354d480fb5cc61
+# [6] https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
 
-# https://lefticus.gitbooks.io/cpp-best-practices/content/02-Use_the_Tools_Available.html#compilers
+# [7] https://lefticus.gitbooks.io/cpp-best-practices/content/02-Use_the_Tools_Available.html#compilers
 
-# https://stackoverflow.com/questions/4659754/the-gs-g-option-equivalent-to-vs2010-cl-compiler
+# [8] https://stackoverflow.com/questions/4659754/the-gs-g-option-equivalent-to-vs2010-cl-compiler
 
-# https://zeuxcg.org/2010/11/22/z7-everything-old-is-new-again/
+# [9] https://zeuxcg.org/2010/11/22/z7-everything-old-is-new-again/
 
-# https://randomascii.wordpress.com/2014/03/22/make-vc-compiles-fast-through-parallel-compilation/
+# [10] https://randomascii.wordpress.com/2014/03/22/make-vc-compiles-fast-through-parallel-compilation/
 
-# https://docs.microsoft.com/en-us/windows/desktop/debug/debug-help-library
+# [11] https://docs.microsoft.com/en-us/windows/desktop/debug/debug-help-library
 # C:\Program Files (x86)\Windows Kits\10\Debuggers
+
+# [12] https://docs.microsoft.com/en-us/visualstudio/debugger/how-to-debug-an-executable-not-part-of-a-visual-studio-solution?view=vs-2017

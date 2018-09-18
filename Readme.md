@@ -15,24 +15,23 @@ Alternative make targets:
 - clustermcml-windows-debug.exe: output windows debug symbols
 - clustermcml-gl-windows.exe: launch a GL shader for output buffer visualization after the kernel has run
 
-
-
 ## Run
-
-mpiexec [hosts] clustermcml-windows.exe kernel.cl "-Werror -D DEBUG" sample.mci
-
+<details>
+<summary>mpiexec [hosts] clustermcml-windows.exe kernel.cl "-Werror -D DEBUG" sample.mci</summary>
+<br>
 [hosts] will be listing some network host addresses that MPI should use as computing nodes.
-
+<br><br>
 "-Werror" is given to OpenCL compiler.
 Without this option you won't see warnings because the program prints only errors (currently).
 For multiple OpenCL compiler options separate them by spaces and wrap the whole string in "".
 [A list of all options is found in the spec](https://www.khronos.org/registry/OpenCL/sdk/1.0/docs/man/xhtml/clBuildProgram.html#notes).
-
+<br><br>
 Pass the DEBUG define to the kernel to trigger the creation of a debug buffer.
 There is for example an assert macro in kernel.cl that will print to the debug buffer.
 The host code will print the debug buffer contents to the console if "error" string is found.
 The debug buffer can also be visualized with a GL shader.
-
+</p>
+</details>
 
 
 ## Changing code
@@ -54,14 +53,6 @@ places it in a command queue, waits for it to finish and accumulates the results
 //TODO The interfaces of runSimpson and runMonteCarloPi need to be updated, because it was changed for runMCML!
 
 //TODO split kernel file
-
-
-
-## References
-
-[Original MCML](https://omlc.org/software/mc/)
-
-[CUDA MCML](http://www.atomic.physics.lu.se/biophotonics/research/monte-carlo-simulations/gpu-monte-carlo/)
 
 
 
@@ -87,11 +78,16 @@ places it in a command queue, waits for it to finish and accumulates the results
 - add rule to Makefile to bake kernel into cpp source to make the exe self-contained
   - so you can run "clustermcml.exe sample.mci"
 
-- add rule to Makefile that can find runtime paths (via batch script) and writes them into Makefile
-  - https://gist.github.com/Kalinovcic/b4d9cc55a37f929cb62320763e8fbb47
-
 - build 64 bit
 
 - port to MPICH (Linux)
 
 - support more compilers
+
+
+
+## References
+
+[Original MCML](https://omlc.org/software/mc/)
+
+[CUDA MCML](http://www.atomic.physics.lu.se/biophotonics/research/monte-carlo-simulations/gpu-monte-carlo/)

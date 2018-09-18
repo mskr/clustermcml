@@ -12,6 +12,7 @@
 #endif
 
 
+
 //TODO share structs with kernel via header
 
 struct Boundary {
@@ -33,15 +34,18 @@ struct PhotonState {
 	float dx, dy, dz; // dir
 	float weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
+	unsigned int rngState;
+	unsigned int isDead;
 };
-
 
 static PhotonState createNewPhotonState() {
 	return {
 		0.0f, 0.0f, 0.0f, // start position
 		0.0f, 0.0f, 1.0f, // start direction
 		1.0f, // start weight
-		0 // start layer index
+		0, // start layer index
+		0, // dummy rng state
+		0 // alive
 	};
 }
 
@@ -51,17 +55,19 @@ const char* getCLKernelName() {
 }
 
 
-static SimulationStruct* simulations = 0;
+
 static int simCount = 0;
+static SimulationStruct* simulations = 0;
 static Layer** layersPerSimulation = 0;
 static uint64_t** reflectancePerSimulation = 0;
 static uint64_t** transmissionPerSimulation = 0;
 static uint64_t** absorptionPerSimulation = 0;
-static PhotonState** photonStatesPerSimulation = 0;
+
+static PhotonState* stateBuffer = 0;
 static char* debugBuffer = 0;
 
 
-void allocCLKernelResources(size_t totalThreadCount, const char* kernelOptions, char* mcmlOptions,
+void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
 int* inputBufferCount, size_t* inputBufferSizes,
 int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
@@ -75,56 +81,57 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	transmissionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	absorptionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
-	photonStatesPerSimulation = (PhotonState**)malloc(simCount * sizeof(PhotonState*));
+
+	// Photon states buffer
+	stateBuffer = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
+	outputBufferSizes[0] = totalThreadCount * sizeof(PhotonState);
 
 	*inputBufferCount = simCount;
-	*outputBufferCount = simCount * 2; //TODO add T and A buffers
+	*outputBufferCount = 1 + 3 * simCount;
 
 	assert(*inputBufferCount <= maxBufferCount);
 	assert(*outputBufferCount <= maxBufferCount);
 
-	for (int i = 0; i < simCount; i++) {
+	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
-		assert(simulations[i].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
+		assert(simulations[simIndex].number_of_photons <= 0xFFFFFFFFu); // ensures no bins can overflow
 
 		// Layers buffer
-		int layerCount = simulations[i].n_layers;
-		inputBufferSizes[i] = layerCount * sizeof(Layer);
-		Layer* layers = (Layer*)malloc(inputBufferSizes[i]);
-		layersPerSimulation[i] = layers;
+		int layerCount = simulations[simIndex].n_layers;
+		inputBufferSizes[simIndex] = layerCount * sizeof(Layer);
+		Layer* layers = (Layer*)malloc(layerCount * sizeof(Layer));
+		layersPerSimulation[simIndex] = layers;
 		for (int j = 1; j <= layerCount; j++) {
 			layers[j - 1] = {
-				simulations[i].layers[j].mua,
-				1.0f / simulations[i].layers[j].mutr - simulations[i].layers[j].mua,
-				simulations[i].layers[j].g,
-				simulations[i].layers[j].n,
-				Boundary{simulations[i].layers[j].z_min, 0.0f, 0.0f, 1.0f},
-				Boundary{simulations[i].layers[j].z_max, 0.0f, 0.0f, -1.0f},
+				simulations[simIndex].layers[j].mua,
+				1.0f / simulations[simIndex].layers[j].mutr - simulations[simIndex].layers[j].mua,
+				simulations[simIndex].layers[j].g,
+				simulations[simIndex].layers[j].n,
+				Boundary{simulations[simIndex].layers[j].z_min, 0.0f, 0.0f, 1.0f},
+				Boundary{simulations[simIndex].layers[j].z_max, 0.0f, 0.0f, -1.0f},
 			};
 		}
 
 		// Reflectance buffer
-		int radialBinCount = simulations[i].det.nr;
-		int angularBinCount = simulations[i].det.na;
+		int radialBinCount = simulations[simIndex].det.nr;
+		int angularBinCount = simulations[simIndex].det.na;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		uint64_t* R_ra = (uint64_t*)malloc(reflectanceBufferSize);
-		reflectancePerSimulation[i] = R_ra;
-		outputBufferSizes[i] = reflectanceBufferSize;
+		reflectancePerSimulation[simIndex] = R_ra;
+		outputBufferSizes[1 + simIndex] = reflectanceBufferSize;
 
 		// Transmission buffer
 		size_t transmissionBufferSize = reflectanceBufferSize;
 		uint64_t* T_ra = (uint64_t*)malloc(transmissionBufferSize);
-		transmissionPerSimulation[i] = T_ra;
+		transmissionPerSimulation[simIndex] = T_ra;
+		outputBufferSizes[1 + simCount + simIndex] = transmissionBufferSize;
 
 		// Absorption buffer
-		int depthBinCount = simulations[i].det.nz;
+		int depthBinCount = simulations[simIndex].det.nz;
 		size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(uint64_t);
 		uint64_t* A_rz = (uint64_t*)malloc(absorptionBufferSize);
-		absorptionPerSimulation[i] = A_rz;
-
-		// Photon states buffer
-		photonStatesPerSimulation[i] = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
-		outputBufferSizes[simCount + i] = totalThreadCount * sizeof(PhotonState);
+		absorptionPerSimulation[simIndex] = A_rz;
+		outputBufferSizes[1 + 2 * simCount + simIndex] = absorptionBufferSize;
 	}
 
 	// Debug buffer
@@ -137,12 +144,13 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 }
 
 
+
 static void freeResources() {
 	if (debugBuffer) {
 		free(debugBuffer);
 	}
 	for (int i = 0; i < simCount; i++) {
-		free(photonStatesPerSimulation[i]);
+		free(stateBuffer);
 		free(absorptionPerSimulation[i]);
 		free(transmissionPerSimulation[i]);
 		free(reflectancePerSimulation[i]);
@@ -157,28 +165,21 @@ static void freeResources() {
 }
 
 
+
 static bool handleDebugOutput() {
-	const char* error = "error";
-	bool isError = false;
-	int j = 0;
-	// print printable ascii chars if starting with "error"
-	for (; debugBuffer[j] >= 32 && debugBuffer[j] <= 126; j++) {
-		if (j <= 4 && debugBuffer[j] != error[j]) break;
-		if (j == 4) {
-			std::cout << error;
-			isError = true;
-		}
-		if (j > 4) std::cout << debugBuffer[j];
+	std::cout << std::endl;
+	//TODO print everything as hex view until reaching some unique end symbol
+	int n = 2048/4;
+	float sum = 0.0f;
+	for (int k = 0; k < n; k++) { // print as floats
+		float f = ((float*)debugBuffer)[k];
+		sum += f;
+		std::cout << f << " ";
 	}
-	if (isError) {
-		std::cout << std::endl;
-		//TODO print everything as hex view until reaching some unique end symbol
-		for (int k = 0; k < 3; k++) { // print as floats
-			std::cout << ((float*)debugBuffer)[j+k] << " ";
-		}
-		std::cout << std::endl;
-	}
-	return isError;
+	std::cout << "sum=" << sum << std::endl;
+	std::cout << "average=" << (sum / n) << std::endl;
+	std::cout << std::endl;
+	return true;
 }
 
 
@@ -216,7 +217,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		for (int i = 0; i < totalThreadCount; i++) {
 			PhotonState newState = createNewPhotonState();
 			newState.weight -= R_specular;
-			photonStatesPerSimulation[simIndex][i] = newState;
+			stateBuffer[i] = newState;
 		}
 
 		int radialBinCount = simulations[simIndex].det.nr;
@@ -241,16 +242,16 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		while (finishedPhotonCount < targetPhotonCount) {
 
 			mcml(nAbove, nBelow, layersPerSimulation[simIndex], simulations[simIndex].n_layers, // input
-				radialBinCount, angularBinCount, radialBinCentimeters, reflectancePerSimulation[simIndex], // output
-				photonStatesPerSimulation[simIndex]);// intermediate buffer
+				radialBinCount, angularBinCount, radialBinCentimeters, reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex], // output
+				stateBuffer);// intermediate buffer
 
 			// Check for dead photons
 			for (int i = 0; i < totalThreadCount; i++) {
-				if (photonStatesPerSimulation[simIndex][i].weight == 0) {
+				if (stateBuffer[i].weight == 0) {
 					finishedPhotonCount++;
 					PhotonState newState = createNewPhotonState();
 					newState.weight -= R_specular;
-					photonStatesPerSimulation[simIndex][i] = newState;
+					stateBuffer[i] = newState;
 				}
 			}
 			if (rank == 0) {
