@@ -32,6 +32,86 @@ unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
 #define length glm::length
 #define min glm::min
 #define xy xy()
+
+// Random from original mcml:
+#define double float
+#define Boolean int
+int time(void* dummy) {
+	return 0;
+}
+#define STANDARDTEST 1
+  /* testing program using fixed rnd seed. */
+/***********************************************************
+ *	A random number generator from Numerical Recipes in C.
+ ****/
+#define MBIG 1000000000
+#define MSEED 161803398
+#define MZ 0
+#define FAC 1.0E-9
+float ran3(int *idum) {
+  static int inext,inextp;
+  static long ma[56];
+  static int iff=0;
+  long mj,mk;
+  int i,ii,k;
+  if (*idum < 0 || iff == 0) {
+    iff=1;
+    mj=MSEED-(*idum < 0 ? -*idum : *idum);
+    mj %= MBIG;
+    ma[55]=mj;
+    mk=1;
+    for (i=1;i<=54;i++) {
+      ii=(21*i) % 55;
+      ma[ii]=mk;
+      mk=mj-mk;
+      if (mk < MZ) mk += MBIG;
+      mj=ma[ii];
+    }
+    for (k=1;k<=4;k++)
+      for (i=1;i<=55;i++) {
+	ma[i] -= ma[1+(i+30) % 55];
+	if (ma[i] < MZ) ma[i] += MBIG;
+      }
+    inext=0;
+    inextp=31;
+    *idum=1;
+  }
+  if (++inext == 56) inext=1;
+  if (++inextp == 56) inextp=1;
+  mj=ma[inext]-ma[inextp];
+  if (mj < MZ) mj += MBIG;
+  ma[inext]=mj;
+  return mj*FAC;
+}
+#undef MBIG
+#undef MSEED
+#undef MZ
+#undef FAC
+/***********************************************************
+ *	Generate a random number between 0 and 1.  Take a 
+ *	number as seed the first time entering the function.  
+ *	The seed is limited to 1<<15.  
+ *	We found that when idum is too large, ran3 may return 
+ *	numbers beyond 0 and 1.
+ ****/
+double RandomNum(void) {
+  static Boolean first_time=1;
+  static int idum;	/* seed for ran3. */
+  if(first_time) {
+#if STANDARDTEST /* Use fixed seed to test the program. */
+    idum = - 1;
+#else
+    idum = -(int)time(NULL)%(1<<15);
+	  /* use 16-bit integer as the seed. */
+#endif
+    ran3(&idum);
+    first_time = 0;
+    idum = 1;
+  }
+  
+  return( (double)ran3(&idum) );
+}
+#undef double
 #endif
 
 
@@ -104,101 +184,6 @@ uint wang_hash(uint seed) {
 
 
 
-// Random from original mcml:
-
-#define double float
-#define Boolean int
-int time(void* dummy) {
-	return 0;
-}
-#define STANDARDTEST 1
-  /* testing program using fixed rnd seed. */
-
-
-/***********************************************************
- *	A random number generator from Numerical Recipes in C.
- ****/
-#define MBIG 1000000000
-#define MSEED 161803398
-#define MZ 0
-#define FAC 1.0E-9
-
-float ran3(int *idum)
-{
-  static int inext,inextp;
-  static long ma[56];
-  static int iff=0;
-  long mj,mk;
-  int i,ii,k;
-  
-  if (*idum < 0 || iff == 0) {
-    iff=1;
-    mj=MSEED-(*idum < 0 ? -*idum : *idum);
-    mj %= MBIG;
-    ma[55]=mj;
-    mk=1;
-    for (i=1;i<=54;i++) {
-      ii=(21*i) % 55;
-      ma[ii]=mk;
-      mk=mj-mk;
-      if (mk < MZ) mk += MBIG;
-      mj=ma[ii];
-    }
-    for (k=1;k<=4;k++)
-      for (i=1;i<=55;i++) {
-	ma[i] -= ma[1+(i+30) % 55];
-	if (ma[i] < MZ) ma[i] += MBIG;
-      }
-    inext=0;
-    inextp=31;
-    *idum=1;
-  }
-  if (++inext == 56) inext=1;
-  if (++inextp == 56) inextp=1;
-  mj=ma[inext]-ma[inextp];
-  if (mj < MZ) mj += MBIG;
-  ma[inext]=mj;
-  return mj*FAC;
-}
-
-#undef MBIG
-#undef MSEED
-#undef MZ
-#undef FAC
-
-
-/***********************************************************
- *	Generate a random number between 0 and 1.  Take a 
- *	number as seed the first time entering the function.  
- *	The seed is limited to 1<<15.  
- *	We found that when idum is too large, ran3 may return 
- *	numbers beyond 0 and 1.
- ****/
-double RandomNum(void)
-{
-  static Boolean first_time=1;
-  static int idum;	/* seed for ran3. */
-  
-  if(first_time) {
-#if STANDARDTEST /* Use fixed seed to test the program. */
-    idum = - 1;
-#else
-    idum = -(int)time(NULL)%(1<<15);
-	  /* use 16-bit integer as the seed. */
-#endif
-    ran3(&idum);
-    first_time = 0;
-    idum = 1;
-  }
-  
-  return( (double)ran3(&idum) );
-}
-
-#undef double
-
-
-
-
 
 
 // Function to integrate by simpson kernel
@@ -231,8 +216,9 @@ __kernel void mcpi(const int npoints, __global uint* out) {
 	size_t i = get_global_id(0);
 	uint count = 0;
 	for (int j = 0; j < npoints; j++) {
-		float x = RandomNum();
-		float y = RandomNum();
+		uint rng_state = 0;
+		float x = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
+		float y = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
 		// check if inside quarter unit circle
 		if (x * x + y * y < 1.0f) {
 			count++;
@@ -285,7 +271,7 @@ float intersect(float3 pos, float3 dir, struct Boundary bound) {
 // more probable to be small the greater g is and
 // evenly distributed if g == 0
 float sampleHenyeyGreenstein(uint* rng_state, float g) {
-	float rand = RandomNum();
+	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	if (g != 0.0f) {
 		return (1.0f / (2.0f * g)) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
@@ -324,7 +310,7 @@ float3 spin(float3 dir, float theta, float psi) {
 
 // return if photon is killed and update its weight (0 == dead)
 bool roulette(uint* rng_state, float* photonWeight) {
-	float rand = RandomNum();
+	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
 	} else {
@@ -502,7 +488,7 @@ DEBUG_BUFFER_ARG)
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
 			// for g==0 theta has most values at pi/2, which is correct???
 			float theta = acos(cosTheta);
-			rand = RandomNum();
+			rand = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
