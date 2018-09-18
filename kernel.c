@@ -170,6 +170,7 @@ struct PhotonState {
 	float weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
 	unsigned int rngState;
+	bool isDead;
 };
 
 // find ray-plane intersection point
@@ -361,13 +362,13 @@ __global struct PhotonState* photonStates
 DEBUG_BUFFER_ARG)
 {
 	__global struct PhotonState* state = &photonStates[get_global_id(0)];
-	uint rng_state = state->rngState;
-	if (rng_state == 0) rng_state = wang_hash(get_global_id(0));
-	float photonWeight = state->weight;
-	if (photonWeight == 0) {
+	if (state->isDead) {
 		// This photon was not restarted because enough are in the pipeline
 		return; // nothing to do
 	}
+	uint rng_state = state->rngState;
+	if (rng_state == 0) rng_state = wang_hash(get_global_id(0));
+	float photonWeight = state->weight;
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;

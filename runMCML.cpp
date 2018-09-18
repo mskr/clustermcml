@@ -9,6 +9,17 @@
 #define DEBUG
 #include "clcheck.h"
 
+// Hash function by Thomas Wang
+// http://www.burtleburtle.net/bob/hash/integer.html
+uint32_t wang_hash(uint32_t seed) {
+	seed = (seed ^ 61) ^ (seed >> 16);
+	seed *= 9;
+	seed = seed ^ (seed >> 4);
+	seed *= 0x27d4eb2d;
+	seed = seed ^ (seed >> 15);
+	return seed;
+}
+
 
 //TODO share structs with kernel via header
 
@@ -32,6 +43,7 @@ struct PhotonState {
 	float weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
 	unsigned int rngState;
+	unsigned int isDead;
 };
 
 
@@ -41,7 +53,8 @@ static PhotonState createNewPhotonState() {
 		0.0f, 0.0f, 1.0f, // start direction
 		1.0f, // start weight
 		0, // start layer index
-		0 // dummy rng state
+		0, // dummy rng state
+		0 // alive
 	};
 }
 
@@ -270,15 +283,18 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			if (debugBuffer) {
 				if (handleDebugOutput()) exit(1);
 			}
-			// Check for dead photons
+			// Check for finished photons
 			for (int i = 0; i < totalThreadCount; i++) {
-				if (stateBuffer[i].weight == 0) {
+				if (stateBuffer[i].weight == 0 && !(stateBuffer[i].isDead)) {
 					finishedPhotonCount++;
 					// Launch new only if next round cannot overachieve
 					if (finishedPhotonCount + totalThreadCount <= targetPhotonCount) {
 						PhotonState newState = createNewPhotonState();
 						newState.weight -= R_specular;
+						newState.rngState = wang_hash(finishedPhotonCount + totalThreadCount);
 						stateBuffer[i] = newState;
+					} else {
+						stateBuffer[i].isDead = 1;
 					}
 				}
 			}
