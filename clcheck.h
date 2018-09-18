@@ -14,7 +14,7 @@
 
 	#ifdef DEBUG
 
-		#include "clerr2str.c"
+		const char* clerr2str(cl_int);
 
 		static cl_int clerrcode = CL_SUCCESS;
 

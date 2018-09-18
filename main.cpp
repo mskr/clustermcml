@@ -8,6 +8,7 @@
 #include <fstream> // std::ifstream, std::ofstream
 
 // Own
+#include "clerr2str.c"
 #define DEBUG
 #include "clcheck.h"
 

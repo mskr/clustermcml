@@ -10,11 +10,20 @@
 #include "clcheck.h"
 
 //TODO share random functions with kernel via header
-
+#ifdef CL2CPU
 // Hash function by Thomas Wang
 // http://www.burtleburtle.net/bob/hash/integer.html
 uint32_t wang_hash(uint32_t seed);
-
+#else
+uint32_t wang_hash(uint32_t seed) {
+	seed = (seed ^ 61) ^ (seed >> 16);
+	seed *= 9;
+	seed = seed ^ (seed >> 4);
+	seed *= 0x27d4eb2d;
+	seed = seed ^ (seed >> 15);
+	return seed;
+}
+#endif
 
 //TODO share structs with kernel via header
 

@@ -20,9 +20,9 @@ MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x8
 MSVC_LIB_UM = "C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x86"
 
 # OpenCL
-CL_INCLUDE = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.0\include"
+CL_INCLUDE = "C:\common-lib-amd-APPSDK-3.0-master\3-0\include"
 CL_HEADER = "CL/opencl.h"
-CL_LIBDIR = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.0\lib\Win32"
+CL_LIBDIR = "C:\common-lib-amd-APPSDK-3.0-master\3-0\lib\x86"
 CL_LIBFILE = "OpenCL.lib"
 
 # MPI
