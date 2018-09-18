@@ -36,27 +36,27 @@ MPI_LIBFILE = "msmpi.lib"
 ################################################################################
 
 cpu-mcml.exe: cpu-main.o cpu-runMCML.o cpu-kernel.o
-	link cpu-main.o cpu-runMCML.o cpu-kernel.o \
+	link cpu-main.o cpu-runMCML.o cpu-kernel.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
 		/OUT:"cpu-mcml.exe"
 
 cpu-main.o: cpu-main.cpp
-	cl cpu-main.cpp /c \
+	cl cpu-main.cpp /c /Zi \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cpu-main.o"
 
 cpu-runMCML.o: runMCML.cpp
-	cl runMCML.cpp \
+	cl runMCML.cpp /c /Zi \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/D"CL2CPU" \
 		/c /Fo"cpu-runMCML.o"
 
 cpu-kernel.o: kernel.c.preprocessed.cpp
-	cl kernel.c.preprocessed.cpp /c /Fo"cpu-kernel.o"
+	cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpu-kernel.o"
 
 kernel.c.preprocessed.cpp: kernel.c.cpp
 	cl kernel.c.cpp /c \
