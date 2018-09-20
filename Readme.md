@@ -20,6 +20,9 @@ Alternative make targets:
 <summary>mpiexec [hosts] clustermcml-windows.exe kernel.cl "-Werror -D DEBUG" sample.mci</summary>
 <br>
 [hosts] will be listing some network host addresses that MPI should use as computing nodes.
+mpiexec will communicate with hosts by connecting to a service process (called smpd when using MSMPI).
+Also make sure when using MSMPI that all Windows PCs have the same username and password and you are logged in,
+otherwise the authentication with smpd fails.
 <br><br>
 "-Werror" is given to OpenCL compiler.
 Without this option you won't see warnings because the program prints only errors (currently).
@@ -71,9 +74,10 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 ## Project TODOs
 
-- Turn main.cpp into module ("cluster.cpp")
+- Turn main.cpp into module ("clusterlib.cpp")
   - nicer interface functions (fewer arguments, fewer functions, wrappers?)
   - header files for each module
+  - the "*run.cpp" modules should have the main method because only one can be used for execution
 
 - add rule to Makefile to bake kernel into cpp source to make the exe self-contained
   - so you can run "clustermcml.exe sample.mci"
