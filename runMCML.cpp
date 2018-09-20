@@ -9,9 +9,13 @@
 #define DEBUG
 #include "clcheck.h"
 
+//TODO share random functions with kernel via header
+#ifdef CL2CPU
 // Hash function by Thomas Wang
 // http://www.burtleburtle.net/bob/hash/integer.html
-uint32_t wang_hash(uint32_t seed) {
+extern "C" uint32_t wang_hash(uint32_t seed);
+#else
+extern "C" uint32_t wang_hash(uint32_t seed) {
 	seed = (seed ^ 61) ^ (seed >> 16);
 	seed *= 9;
 	seed = seed ^ (seed >> 4);
@@ -19,7 +23,7 @@ uint32_t wang_hash(uint32_t seed) {
 	seed = seed ^ (seed >> 15);
 	return seed;
 }
-
+#endif
 
 //TODO share structs with kernel via header
 
@@ -75,7 +79,7 @@ static PhotonState* stateBuffer = 0;
 static char* debugBuffer = 0;
 
 
-void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
+extern "C" void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
 int* inputBufferCount, size_t* inputBufferSizes,
 int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
@@ -83,6 +87,7 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	int ignoreA = std::string(kernelOptions).find("-D IGNORE_A") != std::string::npos ? 1 : 0;
 	std::cout << "--- "<<mcmlOptions<<" --->" << std::endl;
 	simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
+	strcpy(simulations[0].outp_filename, "own.mco");
 	std::cout << "<--- "<<mcmlOptions<<" ---" << std::endl;
 
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
@@ -188,12 +193,16 @@ static bool handleDebugOutput() {
 	return true;
 }
 
+#ifdef CL2CPU
+	void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
+		int size_r, int size_a, float delta_r, 
+		volatile uint64_t* R_ra, volatile uint64_t* T_ra,
+		struct PhotonState* photonStates);
+#endif
 
-void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
+extern "C" void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
-
-		//TODO acc radiance varies based on kernel size
 
 		// Upload layers
 		CL(EnqueueWriteBuffer, cmdQueue, inputBuffers[simIndex], CL_FALSE, 0,
@@ -272,6 +281,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
 			// Run a batch of photons
 			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
+			#ifdef CL2CPU
+				mcml(nAbove, nBelow, layersPerSimulation[simIndex], simulations[simIndex].n_layers, // input
+					radialBinCount, angularBinCount, radialBinCentimeters, reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex], // output
+					stateBuffer);// intermediate buffer
+			#endif
 			// Download photon states
 			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
@@ -313,7 +327,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 
 		// Write output
 		if (rank == 0) {
-			cl_ulong timeStart, timeEnd;
+			cl_ulong timeStart = 0, timeEnd = 0;
 			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
 			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);
 			std::cout << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";

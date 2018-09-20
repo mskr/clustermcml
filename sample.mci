@@ -14,7 +14,7 @@
 #### SPECIFY DATA FOR RUN 1
 #InParm                    	# Input parameters. cm is used.
 sample.mco 	A	      	# output file name, ASCII.
-10000000                  	# No. of photons
+1000                  	# No. of photons
 0.01	0.01               	# dz, dr [cm]
 200	500	1                	# No. of dz, dr, da.
 
