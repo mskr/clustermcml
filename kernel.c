@@ -212,20 +212,21 @@ void add(volatile __global ulong* dst64, uint src32) {
 // theta: angle to original direction
 // psi: position on circle around original direction
 float3 spin(float3 dir, float theta, float psi) {
+	float3 tmp = (float3)(0,0,0);
 	if (fabs(dir.z) > 0.99999) {
 		// when photon travels straight down the z axis
 		// the regular coordinate transform would set x and y direction to (nearly) zero
 		// for this case exists a simplified equivalent formula
-		dir.x = sin(theta) * cos(psi);
-		dir.y = sin(theta) * sin(psi);
-		dir.z = sign(dir.z) * cos(theta);
+		tmp.x = sin(theta) * cos(psi);
+		tmp.y = sin(theta) * sin(psi);
+		tmp.z = sign(dir.z) * cos(theta);
 	} else {
 		// spherical to cartesian coordinates
-		dir.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
-		dir.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) + dir.x * sin(psi)) + dir.y * cos(theta);
-		dir.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
+		tmp.x = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.x * dir.z * cos(psi) - dir.y * sin(psi)) + dir.x * cos(theta);
+		tmp.y = (sin(theta) / sqrt(1.0f - dir.z * dir.z)) * (dir.y * dir.z * cos(psi) + dir.x * sin(psi)) + dir.y * cos(theta);
+		tmp.z = -sin(theta) * cos(psi) * sqrt(1.0f - dir.z * dir.z) + dir.z * cos(theta);
 	}
-	return dir;
+	return tmp;
 }
 
 // return if photon is killed and update its weight (0 == dead)
@@ -301,7 +302,8 @@ int size_r, int size_a, float delta_r, volatile __global ulong* R_ra, volatile _
 // update photon direction
 void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
-	*dir += normal * dot(normal, *dir) * 2.0f; // mirror dir vector against boundary plane
+	// mirror dir vector against boundary plane
+	*dir = *dir - 2.0f * normal * dot(*dir, normal);
 }
 
 // return if photon is reflected at boundary
