@@ -6,37 +6,91 @@
 
 //#include "random.cl" //TODO compile with -I flag, since this file can end up in temp folder
 
-#ifdef CL2CPP
-#include <stdint.h> // uint32_t, uint64_t
-#define GLM_FORCE_SWIZZLE 
-#include "glm/glm.hpp"
-#define __constant
-#define __kernel
-#define __global
-#define uint uint32_t
-#define ulong uint64_t
-size_t get_global_id(uint dimindx) {
+
+#ifdef CL2CPU
+// Random from original mcml:
+#define double float
+#define Boolean int
+int time(void* dummy) {
 	return 0;
 }
-size_t get_global_size (uint dimindx) {
-	return 1;
+#define STANDARDTEST 1
+  /* testing program using fixed rnd seed. */
+/***********************************************************
+ *	A random number generator from Numerical Recipes in C.
+ ****/
+#define MBIG 1000000000
+#define MSEED 161803398
+#define MZ 0
+#define FAC 1.0E-9
+float ran3(int *idum) {
+  static int inext,inextp;
+  static long ma[56];
+  static int iff=0;
+  long mj,mk;
+  int i,ii,k;
+  if (*idum < 0 || iff == 0) {
+    iff=1;
+    mj=MSEED-(*idum < 0 ? -*idum : *idum);
+    mj %= MBIG;
+    ma[55]=mj;
+    mk=1;
+    for (i=1;i<=54;i++) {
+      ii=(21*i) % 55;
+      ma[ii]=mk;
+      mk=mj-mk;
+      if (mk < MZ) mk += MBIG;
+      mj=ma[ii];
+    }
+    for (k=1;k<=4;k++)
+      for (i=1;i<=55;i++) {
+	ma[i] -= ma[1+(i+30) % 55];
+	if (ma[i] < MZ) ma[i] += MBIG;
+      }
+    inext=0;
+    inextp=31;
+    *idum=1;
+  }
+  if (++inext == 56) inext=1;
+  if (++inextp == 56) inextp=1;
+  mj=ma[inext]-ma[inextp];
+  if (mj < MZ) mj += MBIG;
+  ma[inext]=mj;
+  return mj*FAC;
 }
-unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
-	unsigned int old = *p;
-	*p += val;
-	return old;
-}
-#define float3 glm::vec3
-#define dot glm::dot
-#define sign glm::sign
-#define length glm::length
-#define min glm::min
-#define xy xy()
-#undef assert
+#undef MBIG
+#undef MSEED
+#undef MZ
+#undef FAC
+/***********************************************************
+ *	Generate a random number between 0 and 1.  Take a 
+ *	number as seed the first time entering the function.  
+ *	The seed is limited to 1<<15.  
+ *	We found that when idum is too large, ran3 may return 
+ *	numbers beyond 0 and 1.
+ ****/
+double RandomNum(void) {
+  static Boolean first_time=1;
+  static int idum;	/* seed for ran3. */
+  if(first_time) {
+#if STANDARDTEST /* Use fixed seed to test the program. */
+    idum = - 1;
+#else
+    idum = -(int)time(NULL)%(1<<15);
+	  /* use 16-bit integer as the seed. */
 #endif
+    ran3(&idum);
+    first_time = 0;
+    idum = 1;
+  }
+  
+  return( (double)ran3(&idum) );
+}
+#undef double
+#endif // CL2CPU
 
 
-
+#undef PI
 #define PI 3.14159265359f
 
 // An assert macro that writes error message to host buffer and returns from current function
@@ -46,7 +100,7 @@ unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
 #define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x) //The extra level of indirection will allow the preprocessor to expand the macros before they are converted to strings.
-#define assert(expr, t, a, b, c)\
+#define classert(expr, t, a, b, c)\
 	if(!(expr)) {\
 		const __constant char* msg = "error: assertion failed at line " STR(__LINE__);\
 		int i=0; for(; msg[i]!='\0';i++) debugBuffer[i]=msg[i];\
@@ -55,7 +109,7 @@ unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
 	}
 #else
 #define DEBUG_BUFFER_ARG
-#define assert(expr, t, a, b, c)
+#define classert(expr, t, a, b, c)
 #endif
 
 // Following Nathan Reed's article:
@@ -103,6 +157,10 @@ uint wang_hash(uint seed) {
 // https://www.ast.cam.ac.uk/~stg20/cuda/random/index.html
 // used by CUDAMCML, they also have versions for [0,1) and (0,1]
 
+
+
+
+
 // Function to integrate by simpson kernel
 float simpson_f(float x) {
 	return 4 / (1 + x*x);
@@ -131,13 +189,11 @@ __kernel void simpson(float ha, float hb, __global float* out) {
 // Monte carlo approximation of PI
 __kernel void mcpi(const int npoints, __global uint* out) {
 	size_t i = get_global_id(0);
-	uint rng_state = wang_hash(i);
 	uint count = 0;
 	for (int j = 0; j < npoints; j++) {
-		rng_state = rand_xorshift(rng_state);
-		float x = (float)rng_state * RAND_NORM;
-		rng_state = rand_xorshift(rng_state);
-		float y = (float)rng_state * RAND_NORM;
+		uint rng_state = 0;
+		float x = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
+		float y = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
 		// check if inside quarter unit circle
 		if (x * x + y * y < 1.0f) {
 			count++;
@@ -190,8 +246,7 @@ float intersect(float3 pos, float3 dir, struct Boundary bound) {
 // more probable to be small the greater g is and
 // evenly distributed if g == 0
 float sampleHenyeyGreenstein(uint* rng_state, float g) {
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * RAND_NORM;
+	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	if (g != 0.0f) {
 		return (1.0f / (2.0f * g)) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
@@ -231,8 +286,7 @@ float3 spin(float3 dir, float theta, float psi) {
 
 // return if photon is killed and update its weight (0 == dead)
 bool roulette(uint* rng_state, float* photonWeight) {
-	*rng_state = rand_xorshift(*rng_state);
-	float rand = (float)(*rng_state) * RAND_NORM;
+	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
 	} else {
@@ -354,6 +408,9 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 	return (rand <= fresnelR);
 }
 
+
+
+
 // control time spent on the GPU in each round
 #define MAX_ITERATIONS 1000
 
@@ -411,8 +468,7 @@ DEBUG_BUFFER_ARG)
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
 			// for g==0 theta has most values at pi/2, which is correct???
 			float theta = acos(cosTheta);
-			rng_state = rand_xorshift(rng_state);
-			rand = (float)rng_state * RAND_NORM;
+			rand = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float

@@ -11,18 +11,19 @@
 # Set the following MSVC, MPI and OpenCL paths to your setup:
 
 # Windows runtime (see [4], [5] and [6] for automating this)
-MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428\include"
-MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt"
-MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\8.1\Include\um"
-MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\8.1\Include\shared"
-MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.14.26428/lib/x86"
-MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x86"
+MSVC = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\bin\Hostx86\x86"
+MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\include"
+MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\ucrt"
+MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\um"
+MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\shared"
+MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128/lib/x86"
+MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.16299.0\ucrt\x86"
 MSVC_LIB_UM = "C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x86"
 
 # OpenCL
-CL_INCLUDE = "C:\common-lib-amd-APPSDK-3.0-master\3-0\include"
+CL_INCLUDE = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.0\include"
 CL_HEADER = "CL/opencl.h"
-CL_LIBDIR = "C:\common-lib-amd-APPSDK-3.0-master\3-0\lib\x86"
+CL_LIBDIR = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.0\lib\Win32"
 CL_LIBFILE = "OpenCL.lib"
 
 # MPI
@@ -31,9 +32,14 @@ MPI_HEADER = "mpi.h"
 MPI_LIBDIR = "C:\Program Files (x86)\Microsoft SDKs\MPI\Lib\x86"
 MPI_LIBFILE = "msmpi.lib"
 
+
+################################################################################
+# Windows default build
+################################################################################
+
 # Link objects
-clustermcml-windows.exe: main-windows.o runMCML-windows.o
-	link main-windows.o runMCML-windows.o \
+clustermcml-windows.exe: main-windows.o clusterlib-windows.o runMCML-windows.o
+	$(MSVC)/link main-windows.o clusterlib-windows.o runMCML-windows.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -43,11 +49,11 @@ clustermcml-windows.exe: main-windows.o runMCML-windows.o
 
 # Compile new object
 main-windows.o: main.preprocessed.cpp
-	cl main.preprocessed.cpp /c /Fo"main-windows.o"
+	$(MSVC)/cl main.preprocessed.cpp /c /Fo"main-windows.o"
 
 # Preprocess source
-main.preprocessed.cpp: main.cpp
-	cl main.cpp /c \
+main.preprocessed.cpp: main.cpp clusterlib.h
+	$(MSVC)/cl main.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
@@ -56,25 +62,89 @@ main.preprocessed.cpp: main.cpp
 
 # Compile the code that should setup and run the CL kernel
 runMCML-windows.o: runMCML.preprocessed.cpp
-	cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
+	$(MSVC)/cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
 
 runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
-	cl runMCML.cpp /c \
+	$(MSVC)/cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
 		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/P /Fi"runMCML.preprocessed.cpp"
 
+clusterlib-windows.o: clusterlib.preprocessed.cpp
+	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Fo"clusterlib-windows.o"
+
+clusterlib.preprocessed.cpp: clusterlib.cpp
+	$(MSVC)/cl clusterlib.cpp /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
+		/P /Fi"clusterlib.preprocessed.cpp"
+
+
 
 ################################################################################
-# Windows, with debug information
+# Windows CPU build, with debug information
+################################################################################
+
+cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o
+	$(MSVC)/link cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o /DEBUG \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) \
+		/OUT:"cpumcml-windows.exe"
+
+cpumcml-main-windows.o: main.cpp clusterlib.h
+	$(MSVC)/cl main.cpp /c /Zi \
+		/D"CL2CPU" \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/c /Fo"cpumcml-main-windows.o"
+
+cpumcml-runMCML-windows.o: runMCML.cpp
+	$(MSVC)/cl runMCML.cpp /c /Zi \
+		/D"CL2CPU" \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/c /Fo"cpumcml-runMCML-windows.o"
+
+cpumcml-kernel-windows.o: kernel.c.preprocessed.cpp
+	$(MSVC)/cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpumcml-kernel-windows.o"
+
+kernel.c.preprocessed.cpp: kernel.c.cpp
+	$(MSVC)/cl kernel.c.cpp /c \
+		/D"CL2CPU" \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/P /Fi"kernel.c.preprocessed.cpp"
+
+kernel.c.cpp: kernel.c cl2cpp.exe
+	cl2cpp kernel.c
+
+cl2cpp.exe: cl2cpp.o
+	$(MSVC)/link cl2cpp.o \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) \
+		/OUT:"cl2cpp.exe"
+
+cl2cpp.o: cl2cpp.cpp
+	$(MSVC)/cl cl2cpp.cpp /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/c /Fo"cl2cpp.o"
+
+
+################################################################################
+# Windows build, with debug information
 # (e.g for [12] Visual Studio, Dr. Memory, AMD CodeXL, Nvidia NSight (?), ...)
 ################################################################################
 
 # For debug build, pass this rule explicitly to make
-clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
-	link main-windows-debug.o runMCML-windows-debug.o /DEBUG \
+clustermcml-windows-debug.exe: main-windows-debug.o clusterlib-windows-debug.o runMCML-windows-debug.o
+	$(MSVC)/link main-windows-debug.o clusterlib-windows-debug.o runMCML-windows-debug.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -84,18 +154,21 @@ clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o
 # Compile new object and generate debug database in separate file
 # (see [8] and [9] for explanation of debugging information)
 main-windows-debug.o: main.preprocessed.cpp
-	cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
+	$(MSVC)/cl main.preprocessed.cpp /c /Zi /Fo"main-windows-debug.o"
 runMCML-windows-debug.o: runMCML.preprocessed.cpp
-	cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
+	$(MSVC)/cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
+clusterlib-windows-debug.o: clusterlib.preprocessed.cpp
+	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Zi /Fo"clusterlib-windows-debug.o"
 
 
 
 ################################################################################
-# Windows, with OpenGL (for instant visualization)
+# Windows OpenGL build (for instant visualization of GPU buffers)
+# (note that this makes only sense for single GPU)
 ################################################################################
 
-clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o gl-windows.o glad.o
-	link main-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
+clustermcml-gl-windows.exe: main-gl-windows.o clusterlib-gl-windows.o runMCML-windows.o gl-windows.o glad.o
+	$(MSVC)/link main-gl-windows.o clusterlib-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) "user32.lib" "gdi32.lib" "opengl32.lib" \
@@ -104,20 +177,32 @@ clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o gl-windows.o gla
 		/OUT:"clustermcml-gl-windows.exe"
 
 main-gl-windows.o: main-gl.preprocessed.cpp
-	cl main-gl.preprocessed.cpp /c /Fo"main-gl-windows.o"
-main-gl.preprocessed.cpp: main.cpp
-	cl main.cpp /c \
+	$(MSVC)/cl main-gl.preprocessed.cpp /c /Fo"main-gl-windows.o"
+main-gl.preprocessed.cpp: main.cpp clusterlib.h
+	$(MSVC)/cl main.cpp /c \
+		/D"GL_VISUALIZATION" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
 		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
-		/D"GL_VISUALIZATION" \
 		/P /Fi"main-gl.preprocessed.cpp"
 
+clusterlib-gl-windows.o: clusterlib-gl.preprocessed.cpp
+	$(MSVC)/cl clusterlib-gl.preprocessed.cpp /c /Fo"clusterlib-gl-windows.o"
+clusterlib-gl.preprocessed.cpp: clusterlib.cpp
+	$(MSVC)/cl clusterlib.cpp /c \
+		/D"GL_VISUALIZATION" \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
+		/P /Fi"clusterlib-gl.preprocessed.cpp"
+
+
 gl-windows.o: gl-windows.preprocessed.cpp
-	cl gl-windows.preprocessed.cpp /c /Fo"gl-windows.o"
+	$(MSVC)/cl gl-windows.preprocessed.cpp /c /Fo"gl-windows.o"
 gl-windows.preprocessed.cpp: gl-windows.cpp
-	cl gl-windows.cpp /c \
+	$(MSVC)/cl gl-windows.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(MSVC_INCLUDE_UM) \
@@ -126,7 +211,7 @@ gl-windows.preprocessed.cpp: gl-windows.cpp
 
 # GL loader generated with http://glad.dav1d.de/
 glad.o: glad.c
-	cl glad.c /c \
+	$(MSVC)/cl glad.c /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(MSVC_INCLUDE_UM) \
@@ -135,7 +220,7 @@ glad.o: glad.c
 
 
 clean:
-	del *.exe *.o *.preprocessed.cpp *.cl.bin.* *.pdb *.ilk
+	del *.exe *.o *.preprocessed.cpp *.c.cpp *.bin.* *.pdb *.ilk
 
 
 
