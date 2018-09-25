@@ -14,12 +14,12 @@
 #### SPECIFY DATA FOR RUN 1
 #InParm                    	# Input parameters. cm is used.
 sample.mco 	A	      	# output file name, ASCII.
-1000                  	# No. of photons
+10000000                  	# No. of photons
 0.01	0.01               	# dz, dr [cm]
 200	500	1                	# No. of dz, dr, da.
 
 1                        	# Number of layers
 #n	mua	mus	g	d         	# One line for each layer
 1                         	# n for medium above
-1.4	0.1	90	0.9	100    	# layer 1
+1.4	0.1	90	0	0.5    	# layer 1
 1                        	# n for medium below
