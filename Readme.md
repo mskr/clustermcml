@@ -61,32 +61,33 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 ## Code TODOs
 
-- use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs
+- Use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs
 
-- consider using -cl-mad-enable, native_log() and other kernel optimizations
+- Consider using -cl-mad-enable, native_log() and other kernel optimizations
 
-- only compile kernel when timestamp newer than binary, otherwise use binary
-
-- only broadcast kernel if needed (each node keeps a binary)
+- Only compile kernel when a) timestamp newer than binary or b) compiler options changed, otherwise use binary
+    - Only broadcast kernel if needed (each node keeps a binary)
 
 - Hash by Dave Hoskins: https://www.shadertoy.com/view/4djSRW
+
+- Try quasirandom Monte Carlo (blue noise instead of true random)
+    - http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 
 
 ## Project TODOs
 
-- Turn main.cpp into module ("clusterlib.cpp")
-  - nicer interface functions (fewer arguments, fewer functions, wrappers?)
-  - header files for each module
-  - the "*run.cpp" modules should have the main method because only one can be used for execution
+- Header files for each module
 
-- add rule to Makefile to bake kernel into cpp source to make the exe self-contained
+- The "*run.cpp" modules should have the main method because only one can be used for execution
+
+- Add rule to Makefile to bake kernel into cpp source to make the exe self-contained
   - so you can run "clustermcml.exe sample.mci"
 
-- build 64 bit
+- Build 64 bit
 
-- port to MPICH (Linux)
+- Port to MPICH (Linux)
 
-- support more compilers
+- Support more compilers
 
 
 
