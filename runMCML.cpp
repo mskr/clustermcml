@@ -12,7 +12,7 @@
 //TODO share random functions with kernel via header
 #ifdef CL2CPU
 // Need declarations when linking with kernel file as CPU code
-uint32_t wang_hash(uint32_t seed);
+extern "C" uint32_t wang_hash(uint32_t seed);
 void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
 	int size_r, int size_a, int size_z, float delta_r,  float delta_z,
 	volatile uint64_t* R_ra, volatile uint64_t* T_ra, volatile uint64_t* A_rz,
@@ -87,7 +87,7 @@ static char* debugBuffer = 0;
 * Load input data into host buffers
 * Report size information
 */
-void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
+extern "C" void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
 int* inputBufferCount, size_t* inputBufferSizes,
 int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
@@ -207,7 +207,7 @@ static bool handleDebugOutput() {
 * Download output data to host buffers
 * Write output
 */
-void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
+extern "C" void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
@@ -300,8 +300,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 			#ifdef CL2CPU
 				mcml(nAbove, nBelow, layersPerSimulation[simIndex], simulations[simIndex].n_layers, // input
-					radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters
-					reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex] absorptionPerSimulation[simIndex], // output
+					radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters,
+					reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex], absorptionPerSimulation[simIndex], // output
 					stateBuffer);// intermediate buffer
 			#endif
 

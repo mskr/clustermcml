@@ -23,6 +23,8 @@ void includeVectorLib(std::string& src) {
 
 void prependDefinitions(std::string& src) {
 	std::string defs = "                                     \n\
+		#include <fstream> // ofstream                       \n\
+		#include <iomanip> // setw                           \n\
 		#include <stdint.h> // uint32_t, uint64_t            \n\
 		#define __constant                                   \n\
 		#define __kernel                                     \n\
