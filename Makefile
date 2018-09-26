@@ -38,8 +38,8 @@ MPI_LIBFILE = "msmpi.lib"
 ################################################################################
 
 # Link objects
-clustermcml-windows.exe: main-windows.o clusterlib-windows.o runMCML-windows.o
-	$(MSVC)/link main-windows.o clusterlib-windows.o runMCML-windows.o \
+clustermcml-windows.exe: main-windows.o runMCML-windows.o clusterlib-windows.o randomlib-windows.o
+	$(MSVC)/link main-windows.o runMCML-windows.o clusterlib-windows.o randomlib-windows.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -64,7 +64,7 @@ main.preprocessed.cpp: main.cpp clusterlib.h
 runMCML-windows.o: runMCML.preprocessed.cpp
 	$(MSVC)/cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
 
-runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c Boundary.h Layer.h PhotonState.h
+runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonState.h
 	$(MSVC)/cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
@@ -72,6 +72,7 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c Boundary.h Layer.h PhotonStat
 		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/P /Fi"runMCML.preprocessed.cpp"
 
+# Compile own libs
 clusterlib-windows.o: clusterlib.preprocessed.cpp
 	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Fo"clusterlib-windows.o"
 
@@ -83,14 +84,24 @@ clusterlib.preprocessed.cpp: clusterlib.cpp
 		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/P /Fi"clusterlib.preprocessed.cpp"
 
+randomlib-windows.o: randomlib.preprocessed.c
+	$(MSVC)/cl randomlib.preprocessed.c /c /Fo"randomlib-windows.o"
+
+randomlib.preprocessed.c: randomlib.c
+	$(MSVC)/cl randomlib.c /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/FI"stdint.h" \
+		/P /Fi"randomlib.preprocessed.c"
+
 
 
 ################################################################################
 # Windows CPU build, with debug information
 ################################################################################
 
-cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o
-	$(MSVC)/link cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o /DEBUG \
+cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o
+	$(MSVC)/link cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -103,7 +114,7 @@ cpumcml-main-windows.o: main.cpp clusterlib.h
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cpumcml-main-windows.o"
 
-cpumcml-runMCML-windows.o: runMCML.cpp
+cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonState.h
 	$(MSVC)/cl runMCML.cpp /c /Zi \
 		/D"CL2CPU" \
 		/I$(MSVC_INCLUDE) \
@@ -113,7 +124,7 @@ cpumcml-runMCML-windows.o: runMCML.cpp
 cpumcml-kernel-windows.o: kernel.c.preprocessed.cpp
 	$(MSVC)/cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpumcml-kernel-windows.o"
 
-kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonState.h
+kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonState.h randomlib.h
 	$(MSVC)/cl kernel.c.cpp /c \
 		/D"CL2CPU" \
 		/I$(MSVC_INCLUDE) \
@@ -143,8 +154,8 @@ cl2cpp.o: cl2cpp.cpp
 ################################################################################
 
 # For debug build, pass this rule explicitly to make
-clustermcml-windows-debug.exe: main-windows-debug.o clusterlib-windows-debug.o runMCML-windows-debug.o
-	$(MSVC)/link main-windows-debug.o clusterlib-windows-debug.o runMCML-windows-debug.o /DEBUG \
+clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o clusterlib-windows-debug.o randomlib-windows-debug.o
+	$(MSVC)/link main-windows-debug.o runMCML-windows-debug.o clusterlib-windows-debug.o randomlib-windows-debug.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
@@ -159,6 +170,8 @@ runMCML-windows-debug.o: runMCML.preprocessed.cpp
 	$(MSVC)/cl runMCML.preprocessed.cpp /c /Zi /Fo"runMCML-windows-debug.o"
 clusterlib-windows-debug.o: clusterlib.preprocessed.cpp
 	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Zi /Fo"clusterlib-windows-debug.o"
+randomlib-windows-debug.o: randomlib.preprocessed.c
+	$(MSVC)/cl randomlib.preprocessed.c /c /Zi /Fo"randomlib-windows-debug.o"
 
 
 
@@ -167,8 +180,8 @@ clusterlib-windows-debug.o: clusterlib.preprocessed.cpp
 # (note that this makes only sense for single GPU)
 ################################################################################
 
-clustermcml-gl-windows.exe: main-gl-windows.o clusterlib-gl-windows.o runMCML-windows.o gl-windows.o glad.o
-	$(MSVC)/link main-gl-windows.o clusterlib-gl-windows.o runMCML-windows.o gl-windows.o glad.o \
+clustermcml-gl-windows.exe: main-gl-windows.o clusterlib-gl-windows.o randomlib-windows.o runMCML-windows.o gl-windows.o glad.o
+	$(MSVC)/link main-gl-windows.o runMCML-windows.o clusterlib-gl-windows.o randomlib-windows.o gl-windows.o glad.o \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) "user32.lib" "gdi32.lib" "opengl32.lib" \
@@ -220,7 +233,7 @@ glad.o: glad.c
 
 
 clean:
-	del *.exe *.o *.preprocessed.cpp *.c.cpp *.bin.* *.pdb *.ilk
+	del *.exe *.o *.preprocessed.c* *.c.cpp *.bin.* *.pdb *.ilk
 
 
 

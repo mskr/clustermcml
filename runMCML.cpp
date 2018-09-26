@@ -6,6 +6,8 @@
 
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
+#include "randomlib.h"
+
 #include "Boundary.h"
 #include "Layer.h"
 #include "PhotonState.h"
@@ -13,26 +15,10 @@
 #define DEBUG
 #include "clcheck.h"
 
-//TODO share random functions with kernel via header
-#ifdef CL2CPU
-// Need declarations when linking with kernel file as CPU code
-uint32_t wang_hash(uint32_t seed);
 void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
-	int size_r, int size_a, int size_z, float delta_r,  float delta_z,
-	volatile uint64_t* R_ra, volatile uint64_t* T_ra, volatile uint64_t* A_rz,
-	struct PhotonState* photonStates);
-#else
-// Need definition when kernel is GPU code
-uint32_t wang_hash(uint32_t seed) {
-	seed = (seed ^ 61) ^ (seed >> 16);
-	seed *= 9;
-	seed = seed ^ (seed >> 4);
-	seed *= 0x27d4eb2d;
-	seed = seed ^ (seed >> 15);
-	return seed;
-}
-#endif
-
+int size_r, int size_a, int size_z, float delta_r,  float delta_z,
+volatile uint64_t* R_ra, volatile uint64_t* T_ra, volatile uint64_t* A_rz,
+struct PhotonState* photonStates);
 
 static PhotonState createNewPhotonState() {
 	return {

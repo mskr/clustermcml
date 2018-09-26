@@ -1,6 +1,6 @@
 *.exe 
 *.o 
-*.preprocessed.cpp 
+*.preprocessed.c*
 *.c.cpp 
 *.bin.* 
 *.pdb 
