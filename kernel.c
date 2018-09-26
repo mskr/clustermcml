@@ -321,7 +321,8 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 // the corresponding detection array is also updated
 bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
-int size_r, int size_a, float delta_r, volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
+int size_r, int size_a, float delta_r,
+volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
 	*currentLayer = otherLayer;
 	if (*currentLayer < 0) {
 		// photon escaped at top => record diffuse reflectance
@@ -352,8 +353,12 @@ int size_r, int size_a, float delta_r, volatile __global ulong* R_ra, volatile _
 	float e = r * r * (1.0f - cosIncident * cosIncident);
 	(*dir).x = r;
 	(*dir).y = r;
-	(*dir).z = copysign(sqrt(1.0f - e), (*dir).z); //TODO check if this works for all normals
+	//TODO check if this works for all normals!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	(*dir).z = copysign(sqrt(1.0f - e), (*dir).z);
 	return false;
+
+	//TODO compare perf against CUDAMCML, which performs buffer store only when bin changes
+	// and uses local variable to add up the weights when same bin is accessed often
 }
 
 // update photon direction
@@ -417,12 +422,16 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 // control time spent on the GPU in each round
 #define MAX_ITERATIONS 1000
 
+/**
+*
+*/
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-int size_r, int size_a, float delta_r, 
-volatile __global ulong* R_ra, volatile __global ulong* T_ra,
+int size_r, int size_a, int size_z, float delta_r,  float delta_z,
+volatile __global ulong* R_ra, volatile __global ulong* T_ra, volatile __global ulong* A_rz,
 __global struct PhotonState* photonStates
 DEBUG_BUFFER_ARG)
 {
+	// Get current photon state
 	__global struct PhotonState* state = &photonStates[get_global_id(0)];
 	if (state->isDead) {
 		// This photon was not restarted because enough are in the pipeline
@@ -434,47 +443,75 @@ DEBUG_BUFFER_ARG)
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
+
+	// Simulate a few bounces
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
-		// randomize step length
+
+		// Randomize step length
 		// prevent being stuck with xorshift(0)==0 by fallback to lcg
 		rng_state = (rng_state > 0) ? rand_xorshift(rng_state) : rand_lcg(rng_state);
 		float rand = (float)rng_state * RAND_NORM;
 		float s = -log(rand) / interactCoeff;
-		// output step lengths of as many threads as fit into debug buffer
-		// if (get_global_id(0) < 2048/4)
+
+		// Uncomment to output some lengths of the first step of a photon (DEBUG mode required)
+		// if (get_global_id(0) < 2048/4) // limited by debug buffer size
 		// 	((__global float*)DEBUG_BUFFER)[get_global_id(0)] = s;
 		// break;
 
-		// test ray-boundary-intersection
+		// Test intersection with top and bottom boundaries of current layer
 		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0; bool topOrBottom = 0;
 		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
-			pos += dir * pathLenToIntersection; // hop (unfinished part of s can be ignored)
 
-			//TODO drop some weight here?????????????????????????????????????????????????????????????????????????????
+			// Hop (unfinished part of s can be ignored)
+			pos += dir * pathLenToIntersection;
 
+			// MCML does not drop weight here for some reason
+
+			// Transmit or reflect at boundary
 			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
-			// transmit or reflect at boundary
-			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
+			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, 
+			intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, intersectedBoundary);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra, T_ra)) {
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount,
+				size_r, size_a, delta_r, R_ra, T_ra)) {
 					break;
 				}
 			}
 		} else {
-			pos += dir * s; // hop
-			// absorb and scatter in medium
-			photonWeight -= photonWeight * layers[currentLayer].absorbCoeff / interactCoeff; // drop
-			// spin
-			// for g==0 cosTheta is evenly distributed
+
+			// Hop
+			pos += dir * s;
+
+			// Drop
+			float dW = photonWeight * layers[currentLayer].absorbCoeff / interactCoeff;
+			photonWeight -= dW;
+
+			// Record A
+			#ifndef IGNORE_A
+			{
+				float r = length(pos.xy);
+				int i = (int)floor(r / delta_r);
+				i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+				float z = pos.z;
+				int j = (int)floor(z / delta_z);
+				j = min(j, size_z - 1);
+				add(&A_rz[i * size_z + j], (uint)(dW * 0xFFFFFFFF));
+			}
+			#endif
+
+			// Spin
+			// for g==0 cosTheta is evenly distributed...
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
-			// for g==0 theta has most values at pi/2, which is correct???
+			// ... and theta has most values at PI/2, which is unintuitive but correct
 			float theta = acos(cosTheta);
 			rand = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
+
+			// Decide if photon dies
 			if (photonWeight < 0.0001f) {
 				if (roulette(&rng_state, &photonWeight)) {
 					break;
@@ -482,7 +519,8 @@ DEBUG_BUFFER_ARG)
 			}
 		}
 	}
-	// save state for the next round
+
+	// Save state for the next round
 	state->x = pos.x; state->y = pos.y; state->z = pos.z;
 	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
 	state->weight = photonWeight;
