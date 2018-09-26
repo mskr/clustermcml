@@ -74,10 +74,9 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 ## Project TODOs
 
-- Turn main.cpp into module ("clusterlib.cpp")
-  - nicer interface functions (fewer arguments, fewer functions, wrappers?)
-  - header files for each module
-  - the "*run.cpp" modules should have the main method because only one can be used for execution
+- header files for each module
+
+- the "*run.cpp" modules should have the main method because only one can be used for execution
 
 - add rule to Makefile to bake kernel into cpp source to make the exe self-contained
   - so you can run "clustermcml.exe sample.mci"
