@@ -64,7 +64,7 @@ main.preprocessed.cpp: main.cpp clusterlib.h
 runMCML-windows.o: runMCML.preprocessed.cpp
 	$(MSVC)/cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
 
-runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c
+runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c Boundary.h Layer.h PhotonState.h
 	$(MSVC)/cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
@@ -113,7 +113,7 @@ cpumcml-runMCML-windows.o: runMCML.cpp
 cpumcml-kernel-windows.o: kernel.c.preprocessed.cpp
 	$(MSVC)/cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpumcml-kernel-windows.o"
 
-kernel.c.preprocessed.cpp: kernel.c.cpp
+kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonState.h
 	$(MSVC)/cl kernel.c.cpp /c \
 		/D"CL2CPU" \
 		/I$(MSVC_INCLUDE) \

@@ -6,6 +6,10 @@
 
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
+#include "Boundary.h"
+#include "Layer.h"
+#include "PhotonState.h"
+
 #define DEBUG
 #include "clcheck.h"
 
@@ -28,31 +32,6 @@ uint32_t wang_hash(uint32_t seed) {
 	return seed;
 }
 #endif
-
-//TODO share structs with kernel via header
-
-struct Boundary {
-	float z;
-	float nx, ny, nz;
-};
-
-struct Layer {
-	float absorbCoeff;
-	float scatterCoeff;
-	float g; // anisotropy
-	float n; // refractive index
-	struct Boundary top;
-	struct Boundary bottom;
-};
-
-struct PhotonState {
-	float x, y, z; // pos [cm]
-	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
-	int layerIndex; // current layer
-	unsigned int rngState;
-	unsigned int isDead;
-};
 
 
 static PhotonState createNewPhotonState() {

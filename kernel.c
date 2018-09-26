@@ -207,30 +207,9 @@ __kernel void mcpi(const int npoints, __global uint* out) {
 
 /***** MCML *****/
 
-//TODO Boundary with customizable shapes
-// Q: Which shapes make sense with respect to layers intersecting each other?
-struct Boundary {
-	float z; // depth
-	float nx, ny, nz; // normal
-};
-
-struct Layer {
-	float absorbCoeff;
-	float scatterCoeff;
-	float g; // anisotropy
-	float n; // refractive index
-	struct Boundary top;
-	struct Boundary bottom;
-};
-
-struct PhotonState {
-	float x, y, z; // pos [cm]
-	float dx, dy, dz; // dir
-	float weight; // 1 at start, zero when terminated
-	int layerIndex; // current layer
-	unsigned int rngState;
-	bool isDead;
-};
+#include "Boundary.h"
+#include "Layer.h"
+#include "PhotonState.h"
 
 // find ray-plane intersection point
 // if found return path length to intersection

@@ -228,17 +228,24 @@ cl_uint* outdevicecount, char* outdevicenames, cl_uint* outplatformcount, char* 
 */
 void compileCLSourceCode(char* cl_compiler_options, char* src, size_t len,
 cl_context context, cl_device_id* devices, cl_uint devicecount, cl_program* outprogram, char* outerr, size_t memc) {
-	//TODO to share c header files with kernel append -I <getcwd> to compiler options
+	// To share c header files with kernel append "-I <cwd>" to compiler options
+	// (some implementations compile the source as a file in some temp folder)
+	int i = 0; for (; cl_compiler_options[i] != '\0'; i++);
+	char* opts = (char*)malloc(i + 4 + 256);
+	memcpy(opts, cl_compiler_options, i);
+	memcpy(&opts[i], " -I ", 4);
+	_getcwd(&opts[i + 4], 256);
 	const char* programstr[1] = {src};
 	size_t programlen[1] = {len};
 	cl_program program = CLCREATE(ProgramWithSource, context, 1, programstr, programlen);
-	CL(BuildProgram, program, devicecount, devices, cl_compiler_options, NULL, NULL);
-	// query errors during compilation
-	for (int i = 0; i < devicecount; i++) {
+	CL(BuildProgram, program, devicecount, devices, opts, NULL, NULL);
+	free(opts);
+	// Query errors during compilation
+	for (int j = 0; j < devicecount; j++) {
 		cl_build_status status;
-		CL(GetProgramBuildInfo, program, devices[i], CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
+		CL(GetProgramBuildInfo, program, devices[j], CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
 		if (status == CL_BUILD_ERROR) {
-			CL(GetProgramBuildInfo, program, devices[i], CL_PROGRAM_BUILD_LOG, memc, outerr, NULL);
+			CL(GetProgramBuildInfo, program, devices[j], CL_PROGRAM_BUILD_LOG, memc, outerr, NULL);
 			outerr[0] = 'E';
 			break;
 		}
