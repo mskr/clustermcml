@@ -278,8 +278,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 			#ifdef CL2CPU
 				mcml(nAbove, nBelow, layersPerSimulation[simIndex], simulations[simIndex].n_layers, // input
-					radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters
-					reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex] absorptionPerSimulation[simIndex], // output
+					radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters,
+					reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex], absorptionPerSimulation[simIndex], // output
 					stateBuffer);// intermediate buffer
 			#endif
 
