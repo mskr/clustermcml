@@ -71,6 +71,9 @@ places it in a command queue, waits for it to finish and accumulates the results
 
 - Hash by Dave Hoskins: https://www.shadertoy.com/view/4djSRW
 
+- Try quasirandom Monte Carlo (blue noise instead of true random)
+    - http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
+
 
 ## Project TODOs
 
