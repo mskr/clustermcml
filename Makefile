@@ -52,8 +52,6 @@ msvc-mcmlgo.o: mcmlgo.cpp
 	$(MSVC)/cl mcmlgo.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Zi \
-		/c /Fo"msvc-mcmlgo.o"
 
 
 
@@ -63,38 +61,11 @@ cpu-main.o: cpu-main.cpp
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cpu-main.o"
 
-cpu-runMCML.o: runMCML.cpp
-	$(MSVC)/cl runMCML.cpp /c /Zi \
-		/I$(MSVC_INCLUDE) \
-		/I$(MSVC_INCLUDE_UCRT) \
-		/D"CL2CPU" \
-		/c /Fo"cpu-runMCML.o"
 
-cpu-kernel.o: kernel.c.preprocessed.cpp
-	$(MSVC)/cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpu-kernel.o"
 
-kernel.c.preprocessed.cpp: kernel.c.cpp
-	$(MSVC)/cl kernel.c.cpp /c \
-		/I$(MSVC_INCLUDE) \
-		/I$(MSVC_INCLUDE_UCRT) \
-		/D"CL2CPU" \
-		/P /Fi"kernel.c.preprocessed.cpp"
 
-kernel.c.cpp: kernel.c cl2cpp.exe
-	cl2cpp kernel.c
 
-cl2cpp.exe: cl2cpp.o
-	$(MSVC)/link cl2cpp.o \
-		/LIBPATH:$(MSVC_LIB) \
-		/LIBPATH:$(MSVC_LIB_UCRT) \
-		/LIBPATH:$(MSVC_LIB_UM) \
-		/OUT:"cl2cpp.exe"
 
-cl2cpp.o: cl2cpp.cpp
-	$(MSVC)/cl cl2cpp.cpp /c \
-		/I$(MSVC_INCLUDE) \
-		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"cl2cpp.o"
 
 clean:
 	rm *.preprocessed.cpp *.exe *.o *.c.cpp

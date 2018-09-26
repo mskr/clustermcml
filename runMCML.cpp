@@ -11,11 +11,15 @@
 
 //TODO share random functions with kernel via header
 #ifdef CL2CPU
-// Hash function by Thomas Wang
-// http://www.burtleburtle.net/bob/hash/integer.html
-extern "C" uint32_t wang_hash(uint32_t seed);
+// Need declarations when linking with kernel file as CPU code
+uint32_t wang_hash(uint32_t seed);
+void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
+	int size_r, int size_a, int size_z, float delta_r,  float delta_z,
+	volatile uint64_t* R_ra, volatile uint64_t* T_ra, volatile uint64_t* A_rz,
+	struct PhotonState* photonStates);
 #else
-extern "C" uint32_t wang_hash(uint32_t seed) {
+// Need definition when kernel is GPU code
+uint32_t wang_hash(uint32_t seed) {
 	seed = (seed ^ 61) ^ (seed >> 16);
 	seed *= 9;
 	seed = seed ^ (seed >> 4);
@@ -78,8 +82,12 @@ static uint64_t** absorptionPerSimulation = 0;
 static PhotonState* stateBuffer = 0;
 static char* debugBuffer = 0;
 
-
-extern "C" void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
+/**
+* Alloc host buffers
+* Load input data into host buffers
+* Report size information
+*/
+void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
 int* inputBufferCount, size_t* inputBufferSizes,
 int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 
@@ -193,14 +201,13 @@ static bool handleDebugOutput() {
 	return true;
 }
 
-#ifdef CL2CPU
-	void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
-		int size_r, int size_a, float delta_r, 
-		volatile uint64_t* R_ra, volatile uint64_t* T_ra,
-		struct PhotonState* photonStates);
-#endif
-
-extern "C" void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
+/**
+* Upload input data to device buffers
+* Run kernel
+* Download output data to host buffers
+* Write output
+*/
+void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
@@ -228,36 +235,44 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		}
 
 		// Get RAT buffer info
-		int radialBinCount = simulations[simIndex].det.nr;
 		float radialBinCentimeters = simulations[simIndex].det.dr;
+		float depthBinCentimeters = simulations[simIndex].det.dz;
+		int radialBinCount = simulations[simIndex].det.nr;
 		int angularBinCount = simulations[simIndex].det.na;
+		int depthBinCount = simulations[simIndex].det.nz;
 		size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(uint64_t);
 		size_t transmissionBufferSize = reflectanceBufferSize;
+		size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(uint64_t);
 
 		// Init RAT buffers with zeros
-		for (int i = 0; i < radialBinCount * angularBinCount; i++) {
-			reflectancePerSimulation[simIndex][i] = 0;
-			transmissionPerSimulation[simIndex][i] = 0;
-		}
+		for (int i = 0; i < radialBinCount * angularBinCount; i++)
+			reflectancePerSimulation[simIndex][i] = transmissionPerSimulation[simIndex][i] = 0;
+		for (int i = 0; i < radialBinCount * depthBinCount; i++)
+			absorptionPerSimulation[simIndex][i] = 0;
 
 		// Upload RAT buffers
 		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[1 + simIndex], CL_FALSE, 0,
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, NULL);
 		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[1 + simCount + simIndex], CL_FALSE, 0,
 			transmissionBufferSize, transmissionPerSimulation[simIndex], 0, NULL, NULL);
+		CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[1 + 2 * simCount + simIndex], CL_FALSE, 0,
+			absorptionBufferSize, absorptionPerSimulation[simIndex], 0, NULL, NULL);
 
 		{ // Set arguments
 			int argCount = 0;
 			CL(SetKernelArg, kernel, argCount++, sizeof(float), &nAbove);
 			CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
-			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &inputBuffers[simIndex]);
-			CL(SetKernelArg, kernel, argCount++, sizeof(int), &simulations[simIndex].n_layers);
-			CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount);
-			CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount);
-			CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters);
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &inputBuffers[simIndex]); // layers
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &simulations[simIndex].n_layers); // layerCount
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount); // size_r
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount); // size_a
+			CL(SetKernelArg, kernel, argCount++, sizeof(int), &depthBinCount); // size_z
+			CL(SetKernelArg, kernel, argCount++, sizeof(float), &radialBinCentimeters); // delta_r
+			CL(SetKernelArg, kernel, argCount++, sizeof(float), &depthBinCentimeters); // delta_z
 			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + simIndex]); // R
 			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + simCount + simIndex]); // T
-			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[0]); // photon state buffer
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + 2 * simCount + simIndex]); // A
+			CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[0]); // Photon states
 			if (debugBuffer) {
 				CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &outputBuffers[1 + 3 * simCount]);
 			}
@@ -275,28 +290,34 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		uint32_t finishedPhotonCount = 0;
 		std::cout << std::endl;
 		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
+
 			// Upload photon states
 			//TODO since buffer updates are sparse, map could be faster than write in whole
 			CL(EnqueueWriteBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
+
 			// Run a batch of photons
 			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 			#ifdef CL2CPU
 				mcml(nAbove, nBelow, layersPerSimulation[simIndex], simulations[simIndex].n_layers, // input
-					radialBinCount, angularBinCount, radialBinCentimeters, reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex], // output
+					radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters
+					reflectancePerSimulation[simIndex], transmissionPerSimulation[simIndex] absorptionPerSimulation[simIndex], // output
 					stateBuffer);// intermediate buffer
 			#endif
+
 			// Download photon states
 			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
 			if (debugBuffer) {
 				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + 3 * simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
 			}
+
 			// Wait for async commands to finish
 			CL(Finish, cmdQueue);
 			if (debugBuffer) {
 				if (handleDebugOutput()) exit(1);
 			}
+
 			// Check for finished photons
 			for (int i = 0; i < totalThreadCount; i++) {
 				if (stateBuffer[i].weight == 0 && !(stateBuffer[i].isDead)) {
@@ -312,6 +333,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 					}
 				}
 			}
+
+			// Print status
 			if (rank == 0) {
 				std::cout << '\r' << "Photons terminated: " << finishedPhotonCount << "/" << targetPhotonCount << std::flush;
 			}
@@ -323,6 +346,8 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			reflectanceBufferSize, reflectancePerSimulation[simIndex], 0, NULL, &reflectanceTransferEvent);
 		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + simCount + simIndex], CL_FALSE, 0,
 			transmissionBufferSize, transmissionPerSimulation[simIndex], 0, NULL, NULL);
+		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + 2 * simCount + simIndex], CL_FALSE, 0,
+			absorptionBufferSize, absorptionPerSimulation[simIndex], 0, NULL, NULL);
 		CL(Finish, cmdQueue);
 
 		// Write output

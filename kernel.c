@@ -6,35 +6,88 @@
 
 //#include "random.cl" //TODO compile with -I flag, since this file can end up in temp folder
 
-#include <fstream>
-#include <iomanip>      // std::std::setw
 
 #ifdef CL2CPU
-#include <stdint.h> // uint32_t, uint64_t
-#define GLM_FORCE_SWIZZLE 
-#include "glm/glm.hpp"
-#define __constant
-#define __kernel
-#define __global
-#define uint uint32_t
-#define ulong uint64_t
-size_t get_global_id(uint dimindx) {
+// Random from original mcml:
+#define double float
+#define Boolean int
+int time(void* dummy) {
 	return 0;
 }
-size_t get_global_size (uint dimindx) {
-	return 1;
+#define STANDARDTEST 1
+  /* testing program using fixed rnd seed. */
+/***********************************************************
+ *	A random number generator from Numerical Recipes in C.
+ ****/
+#define MBIG 1000000000
+#define MSEED 161803398
+#define MZ 0
+#define FAC 1.0E-9
+float ran3(int *idum) {
+  static int inext,inextp;
+  static long ma[56];
+  static int iff=0;
+  long mj,mk;
+  int i,ii,k;
+  if (*idum < 0 || iff == 0) {
+    iff=1;
+    mj=MSEED-(*idum < 0 ? -*idum : *idum);
+    mj %= MBIG;
+    ma[55]=mj;
+    mk=1;
+    for (i=1;i<=54;i++) {
+      ii=(21*i) % 55;
+      ma[ii]=mk;
+      mk=mj-mk;
+      if (mk < MZ) mk += MBIG;
+      mj=ma[ii];
+    }
+    for (k=1;k<=4;k++)
+      for (i=1;i<=55;i++) {
+	ma[i] -= ma[1+(i+30) % 55];
+	if (ma[i] < MZ) ma[i] += MBIG;
+      }
+    inext=0;
+    inextp=31;
+    *idum=1;
+  }
+  if (++inext == 56) inext=1;
+  if (++inextp == 56) inextp=1;
+  mj=ma[inext]-ma[inextp];
+  if (mj < MZ) mj += MBIG;
+  ma[inext]=mj;
+  return mj*FAC;
 }
-unsigned int atomic_add(volatile __global unsigned int *p , unsigned int val) {
-	unsigned int old = *p;
-	*p += val;
-	return old;
+#undef MBIG
+#undef MSEED
+#undef MZ
+#undef FAC
+/***********************************************************
+ *	Generate a random number between 0 and 1.  Take a 
+ *	number as seed the first time entering the function.  
+ *	The seed is limited to 1<<15.  
+ *	We found that when idum is too large, ran3 may return 
+ *	numbers beyond 0 and 1.
+ ****/
+double RandomNum(void) {
+  static Boolean first_time=1;
+  static int idum;	/* seed for ran3. */
+  if(first_time) {
+#if STANDARDTEST /* Use fixed seed to test the program. */
+    idum = - 1;
+#else
+    idum = -(int)time(NULL)%(1<<15);
+	  /* use 16-bit integer as the seed. */
+#endif
+    ran3(&idum);
+    first_time = 0;
+    idum = 1;
+  }
+  
+  return( (double)ran3(&idum) );
 }
-#define float3 glm::vec3
-#define dot glm::dot
-#define sign glm::sign
-#define length glm::length
-#define min glm::min
-#define xy xy()
+#undef double
+#endif // CL2CPU
 
 // Random from original mcml:
 #define double float
@@ -117,27 +170,29 @@ double RandomNum(void) {
 #undef double
 #endif
 
-
 #undef PI
 #define PI 3.14159265359f
 
-// An assert macro that writes error message to host buffer and returns from current function
+// An assert macro that writes error message to host buffer
+// and then performs a devide-by-zero to crash the kernel.
 //TODO dump the whole stack frame when assertions fail
 #ifdef DEBUG
-#define DEBUG_BUFFER_ARG ,__global char* debugBuffer
+#define DEBUG_BUFFER debugBuffer
+#define DEBUG_BUFFER_ARG ,__global char* DEBUG_BUFFER
 #define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
 #define STR_HELPER(x) #x
-#define STR(x) STR_HELPER(x) //The extra level of indirection will allow the preprocessor to expand the macros before they are converted to strings.
-#define classert(expr, t, a, b, c)\
+#define STR(x) STR_HELPER(x) // The extra level of indirection 
+// will allow the preprocessor to expand the macros 
+// before they are converted to strings.
+#define classert(expr)\
 	if(!(expr)) {\
-		const __constant char* msg = "error: assertion failed at line " STR(__LINE__);\
-		int i=0; for(; msg[i]!='\0';i++) debugBuffer[i]=msg[i];\
-		((__global t*)debugBuffer)[i] = a; ((__global t*)debugBuffer)[i+1] = b; ((__global t*)debugBuffer)[i+2] = c;\
-		return;\
+		const __constant char* _msg_ = "error: assertion failed at line " STR(__LINE__);\
+		STR_COPY(_msg_, DEBUG_BUFFER);\
+		DEBUG_BUFFER[0] = 42/0;\
 	}
-#else
+#else // no assert in non-debug mode
 #define DEBUG_BUFFER_ARG
-#define classert(expr, t, a, b, c)
+#define classert(expr)
 #endif
 
 // Following Nathan Reed's article:
@@ -346,7 +401,8 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 // the corresponding detection array is also updated
 bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
-int size_r, int size_a, float delta_r, volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
+int size_r, int size_a, float delta_r,
+volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
 	*currentLayer = otherLayer;
 	if (*currentLayer < 0) {
 		// photon escaped at top => record diffuse reflectance
@@ -377,8 +433,12 @@ int size_r, int size_a, float delta_r, volatile __global ulong* R_ra, volatile _
 	float e = r * r * (1.0f - cosIncident * cosIncident);
 	(*dir).x = r;
 	(*dir).y = r;
-	(*dir).z = copysign(sqrt(1.0f - e), (*dir).z); //TODO check if this works for all normals
+	//TODO check if this works for all normals!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	(*dir).z = copysign(sqrt(1.0f - e), (*dir).z);
 	return false;
+
+	//TODO compare perf against CUDAMCML, which performs buffer store only when bin changes
+	// and uses local variable to add up the weights when same bin is accessed often
 }
 
 // update photon direction
@@ -443,12 +503,16 @@ static std::ofstream directions("directions_own.txt");
 // control time spent on the GPU in each round
 #define MAX_ITERATIONS 1000
 
+/**
+*
+*/
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-int size_r, int size_a, float delta_r, 
-volatile __global ulong* R_ra, volatile __global ulong* T_ra,
+int size_r, int size_a, int size_z, float delta_r,  float delta_z,
+volatile __global ulong* R_ra, volatile __global ulong* T_ra, volatile __global ulong* A_rz,
 __global struct PhotonState* photonStates
 DEBUG_BUFFER_ARG)
 {
+	// Get current photon state
 	__global struct PhotonState* state = &photonStates[get_global_id(0)];
 	if (state->isDead) {
 		// This photon was not restarted because enough are in the pipeline
@@ -460,42 +524,68 @@ DEBUG_BUFFER_ARG)
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
+
+	// Simulate a few bounces
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
-		// randomize step length
+
+		// Randomize step length
 		// prevent being stuck with xorshift(0)==0 by fallback to lcg
 		rng_state = (rng_state > 0) ? rand_xorshift(rng_state) : rand_lcg(rng_state);
 		float rand = RandomNum();//(float)rng_state * RAND_NORM;
 		float s = -log(rand) / interactCoeff;
-		// output step lengths of as many threads as fit into debug buffer
-		// if (get_global_id(0) < 2048/4)
-		// 	((__global float*)debugBuffer)[get_global_id(0)] = s;
+
+		// Uncomment to output some lengths of the first step of a photon (DEBUG mode required)
+		// if (get_global_id(0) < 2048/4) // limited by debug buffer size
+		// 	((__global float*)DEBUG_BUFFER)[get_global_id(0)] = s;
 		// break;
 
-		// test ray-boundary-intersection
+		// Test intersection with top and bottom boundaries of current layer
 		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0; bool topOrBottom = 0;
 		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
-			pos += dir * pathLenToIntersection; // hop (unfinished part of s can be ignored)
 
-			//TODO drop some weight here?????????????????????????????????????????????????????????????????????????????
+			// Hop (unfinished part of s can be ignored)
+			pos += dir * pathLenToIntersection;
 
+			// MCML does not drop weight here for some reason
+
+			// Transmit or reflect at boundary
 			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
-			// transmit or reflect at boundary
-			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
+			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, 
+			intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, intersectedBoundary);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount, size_r, size_a, delta_r, R_ra, T_ra)) {
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount,
+				size_r, size_a, delta_r, R_ra, T_ra)) {
 					break;
 				}
 			}
 		} else {
-			pos += dir * s; // hop
-			// absorb and scatter in medium
-			photonWeight -= photonWeight * layers[currentLayer].absorbCoeff / interactCoeff; // drop
-			// spin
-			// for g==0 cosTheta is evenly distributed
+
+			// Hop
+			pos += dir * s;
+
+			// Drop
+			float dW = photonWeight * layers[currentLayer].absorbCoeff / interactCoeff;
+			photonWeight -= dW;
+
+			// Record A
+			#ifndef IGNORE_A
+			{
+				float r = length(pos.xy);
+				int i = (int)floor(r / delta_r);
+				i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+				float z = pos.z;
+				int j = (int)floor(z / delta_z);
+				j = min(j, size_z - 1);
+				add(&A_rz[i * size_z + j], (uint)(dW * 0xFFFFFFFF));
+			}
+			#endif
+
+			// Spin
+			// for g==0 cosTheta is evenly distributed...
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
-			// for g==0 theta has most values at pi/2, which is correct???
+			// ... and theta has most values at PI/2, which is unintuitive but correct
 			float theta = acos(cosTheta);
 			rand = RandomNum();//(float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
 			float psi = 2 * PI * rand;
@@ -510,7 +600,8 @@ DEBUG_BUFFER_ARG)
 			}
 		}
 	}
-	// save state for the next round
+
+	// Save state for the next round
 	state->x = pos.x; state->y = pos.y; state->z = pos.z;
 	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
 	state->weight = photonWeight;

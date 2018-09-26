@@ -9,6 +9,49 @@ static bool verbose = false;
 static bool very_verbose = false;
 static const std::string VEC = "glm::vec";
 
+void includeVectorLib(std::string& src) {
+	std::string lib = "                                     \n\
+		#define GLM_FORCE_SWIZZLE                           \n\
+		#include \"glm/vec2.hpp\"                           \n\
+		#include \"glm/vec3.hpp\"                           \n\
+		#include \"glm/geometric.hpp\" // dot, cross...     \n\
+		#include \"glm/trigonometric.hpp\" // sin, cos...   \n\
+		#include \"glm/exponential.hpp\" // sqrt, log...    \n\
+	";
+	src = lib + "\n" + src;
+}
+
+void prependDefinitions(std::string& src) {
+	std::string defs = "                                     \n\
+		#include <stdint.h> // uint32_t, uint64_t            \n\
+		#define __constant                                   \n\
+		#define __kernel                                     \n\
+		#define __global                                     \n\
+		#define uint uint32_t                                \n\
+		#define ulong uint64_t                               \n\
+		size_t get_global_id(uint dimindx) {                 \n\
+			return 0;                                        \n\
+		}                                                    \n\
+		size_t get_global_size (uint dimindx) {              \n\
+			return 1;                                        \n\
+		}                                                    \n\
+		unsigned int atomic_add(                             \n\
+		volatile __global unsigned int *p ,                  \n\
+		unsigned int val) {                                  \n\
+			unsigned int old = *p;                           \n\
+			*p += val;                                       \n\
+			return old;                                      \n\
+		}                                                    \n\
+		#define float3 glm::vec3                             \n\
+		#define dot glm::dot                                 \n\
+		#define sign glm::sign                               \n\
+		#define length glm::length                           \n\
+		#define min glm::min                                 \n\
+		#define xy xy()                                      \n\
+	";
+	src = defs + "\n\n" + src;
+}
+
 void skipNestedParanthesis(std::string& src, int* j, char* c, int lineCount) {
 	int k = (*j)+1;
 	char d = src[k];
@@ -82,6 +125,8 @@ int main(int nargs, char* args[]) {
 	std::string str = buf.str();
 	if (verbose) std::cout << "Read " << str.length() << " bytes" << std::endl;
 	replaceVectorTypes(str);
+	prependDefinitions(str);
+	includeVectorLib(str);
 	std::ofstream out(std::string(args[1]) + ".cpp");
 	out << str;
 	return 0;
