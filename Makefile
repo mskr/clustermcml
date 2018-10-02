@@ -259,6 +259,33 @@ runMonteCarloPi.preprocessed.cpp: runMonteCarloPi.cpp
 		/P /Fi"runMonteCarloPi.preprocessed.cpp"
 
 
+################################################################################
+# Windows build of Simpson example
+################################################################################
+
+# Link objects
+clustersimpson-windows.exe: main-windows.o runSimpson-windows.o clusterlib-windows.o
+	$(MSVC)/link main-windows.o runSimpson-windows.o clusterlib-windows.o \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) \
+		/LIBPATH:$(CL_LIBDIR) $(CL_LIBFILE) \
+		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
+		/OUT:"clustersimpson-windows.exe"
+
+# Compile the code that should setup and run the CL kernel
+runSimpson-windows.o: runSimpson.preprocessed.cpp
+	$(MSVC)/cl runSimpson.preprocessed.cpp /c /Fo"runSimpson-windows.o"
+
+runSimpson.preprocessed.cpp: runSimpson.cpp
+	$(MSVC)/cl runSimpson.cpp /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
+		/P /Fi"runSimpson.preprocessed.cpp"
+
+
 
 clean:
 	del *.exe *.o *.preprocessed.c* *.c.cpp *.bin.* *.pdb *.ilk
