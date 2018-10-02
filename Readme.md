@@ -14,6 +14,7 @@ Currently only Windows.
 Alternative make targets:
 - clustermcml-windows-debug.exe: output windows debug symbols
 - clustermcml-gl-windows.exe: launch a GL shader for output buffer visualization after the kernel has run
+- clustermcpi-windows.exe: very simple example program that approximates PI using a Monte Carlo method
 
 ## Run
 <details>
@@ -39,23 +40,38 @@ The debug buffer can also be visualized with a GL shader.
 
 ## Changing code
 
-MPI and OpenCL boilerplate setup is done in "main.cpp".
-Real work is done in the "run\*.cpp" files and "kernel.cl".
+MPI and OpenCL boilerplate setup is done in "main.cpp" and "clusterlib.cpp".
+Real work is done in the "run\*.cpp" and "\*Kernel.c" files.
 
-//TODO document interfaces
-
-Currently there are two other kernel functions in kernel.cl besides "mcml" for testing purposes:
+Currently there are two other kernels for testing purposes:
 - "simpson" integrates the function "simpson_f" with the simpson method (integrate from 0 to 1 to approximate PI)
 - "mcpi" approximates PI with a monte carlo method
 
-Replace "runMCML" in the Makefile against "runSimpson" or "runMonteCarloPi" to run these kernels.
-This works by simply linking different "getCLKernelName" and "runCLKernel" functions into the main program.
-As you can see in the "run\*.cpp" files, the latter function sets the kernel arguments,
-places it in a command queue, waits for it to finish and accumulates the results from all threads and processes.
-
-//TODO The interfaces of runSimpson and runMonteCarloPi need to be updated, because it was changed for runMCML!
-
-//TODO split kernel file
+Here are the interfaces of the "run\*.cpp" files, which are called by main:
+```c
+/**
+* Returns the name of the kernel function.
+*/
+void getCLKernelName();
+```
+```c
+/**
+* Allocates host memory and reports sizes for device buffers.
+*/
+void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* otherOptions,
+int* inputBufferCount, size_t* inputBufferSizes,
+int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount)
+```
+```c
+/**
+* Sets the kernel arguments,
+* places it in a command queue, 
+* waits for it to finish 
+* and accumulates the results from all threads and processes.
+*/
+void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
+size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
+```
 
 
 
