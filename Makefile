@@ -232,6 +232,34 @@ glad.o: glad.c
 		/Fo"glad.o"
 
 
+################################################################################
+# Windows build of Monte Carlo Pi example
+################################################################################
+
+# Link objects
+clustermcpi-windows.exe: main-windows.o runMonteCarloPi-windows.o clusterlib-windows.o
+	$(MSVC)/link main-windows.o runMonteCarloPi-windows.o clusterlib-windows.o \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) \
+		/LIBPATH:$(CL_LIBDIR) $(CL_LIBFILE) \
+		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
+		/OUT:"clustermcpi-windows.exe"
+
+# Compile the code that should setup and run the CL kernel
+runMonteCarloPi-windows.o: runMonteCarloPi.preprocessed.cpp
+	$(MSVC)/cl runMonteCarloPi.preprocessed.cpp /c /Fo"runMonteCarloPi-windows.o"
+
+runMonteCarloPi.preprocessed.cpp: runMonteCarloPi.cpp
+	$(MSVC)/cl runMonteCarloPi.cpp /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(CL_INCLUDE) /FI$(CL_HEADER) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
+		/P /Fi"runMonteCarloPi.preprocessed.cpp"
+
+
+
 clean:
 	del *.exe *.o *.preprocessed.c* *.c.cpp *.bin.* *.pdb *.ilk
 
