@@ -3,6 +3,7 @@
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
+#include "CUDAMCML.h"
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
 #include "Log.h" // out stream
@@ -22,6 +23,7 @@ int size_r, int size_a, int size_z, float delta_r,  float delta_z,
 volatile uint64_t* R_ra, volatile uint64_t* T_ra, volatile uint64_t* A_rz,
 struct PhotonTracker* photonStates);
 
+
 static PhotonTracker createNewPhotonTracker() {
 	return {
 		0.0f, 0.0f, 0.0f, // start position
@@ -34,8 +36,54 @@ static PhotonTracker createNewPhotonTracker() {
 }
 
 
-const char* getCLKernelName() {
-	return "mcml";
+static MPI_Datatype createMPISimulationStruct() {
+	// Describing the following data layout:
+	// 	unsigned long number_of_photons;
+	// 	int ignoreAdetection;
+	// 	unsigned int n_layers;
+	// 	unsigned int start_weight;
+	// 	char outp_filename[STR_LEN];
+	// 	char inp_filename[STR_LEN];
+	// 	long begin,end;
+	// 	char AorB;
+	// {
+	// 	float dr;		// Detection grid resolution, r-direction [cm]
+	// 	float dz;		// Detection grid resolution, z-direction [cm]
+	// 	int na;			// Number of grid elements in angular-direction [-]
+	// 	int nr;			// Number of grid elements in r-direction
+	// 	int nz;			// Number of grid elements in z-direction
+	// }
+	// 	LayerStruct* layers;
+	int blockLengths[11] = {1,1,1,1,STR_LEN,STR_LEN,2,1,2,3,sizeof(void*)};
+	int offsets[11]; int sum = 0;
+	offsets[0] = (sum + 0);
+	offsets[1] = (sum + sizeof(unsigned long));
+	offsets[2] = (sum + sizeof(int));
+	offsets[3] = (sum + sizeof(unsigned int));
+	offsets[4] = (sum + sizeof(unsigned int));
+	offsets[5] = (sum + sizeof(char) * STR_LEN);
+	offsets[6] = (sum + sizeof(char) * STR_LEN);
+	offsets[7] = (sum + sizeof(long) * 2);
+	offsets[8] = (sum + sizeof(char));
+	offsets[9] = (sum + sizeof(float) * 2);
+	offsets[10] = (sum + sizeof(int) * 3);
+	MPI_Datatype types[11] = {MPI_UNSIGNED_LONG, MPI_INT, MPI_UNSIGNED, MPI_UNSIGNED,
+		MPI_CHAR, MPI_CHAR, MPI_LONG, MPI_CHAR, MPI_FLOAT, MPI_INT, MPI_CHAR};
+	MPI_Datatype simStruct;
+	MPI_Type_create_struct(11, blockLengths, offsets, types, &simStruct);
+	MPI_Type_commit(&simStruct);
+	return simStruct;
+}
+
+
+static MPI_Datatype createMPILayerStruct() {
+	int blockLengths[6] = {1,1,1,1,1,1};
+	int offsets[6]; for (int k = 0; k < 6; k++) offsets[k] = k * sizeof(float);
+	MPI_Datatype types[6] = {MPI_FLOAT,MPI_FLOAT,MPI_FLOAT,MPI_FLOAT,MPI_FLOAT,MPI_FLOAT};
+	MPI_Datatype layerStruct;
+	MPI_Type_create_struct(6, blockLengths, offsets, types, &layerStruct);
+	MPI_Type_commit(&layerStruct);
+	return layerStruct;
 }
 
 
@@ -58,17 +106,26 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 int* inputBufferCount, size_t* inputBufferSizes,
 int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank) {
 
-	//TODO since MPI structs are hard work and we are lazy, we read the file with all processes for now
-	// if (rank == 0) {
+	// Read input file with rank 0 and broadcast the complex simulation struct piece by piece
+	// (could optimize communication overhead with MPI pack/unpack:
+	// https://www.mpi-forum.org/docs/mpi-2.2/mpi22-report/node84.htm
+	// https://stackoverflow.com/a/32487093)
+	if (rank == 0) {
 		int ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL ? 1 : 0;
 		out << "--- "<<mcmlOptions<<" --->" << '\n';
 		simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
 		out << "<--- "<<mcmlOptions<<" ---" << '\n';
-		// MPI_Bcast(&simCount, 1, MPI_INTEGER, 0, MPI_COMM_WORLD);
-		// MPI_Datatype simStruct;
-		// MPI_Datatype* members = (MPI_Datatype*)malloc()
-		// MPI_Type_struct(simCount, )
-	// }
+	}
+	MPI_Bcast(&simCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	if (rank != 0)
+		simulations = (SimulationStruct*)malloc(simCount * sizeof(SimulationStruct));
+	MPI_Bcast(simulations, simCount, createMPISimulationStruct(), 0, MPI_COMM_WORLD);
+	for (int i = 0; i < simCount; i++) {
+		MPI_Bcast(&simulations[i].n_layers, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+		if (rank != 0)
+			simulations[i].layers = (LayerStruct*)malloc(simulations[i].n_layers * sizeof(LayerStruct));
+		MPI_Bcast(simulations[i].layers, simulations[i].n_layers, createMPILayerStruct(), 0, MPI_COMM_WORLD);
+	}
 
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
@@ -172,6 +229,24 @@ static bool handleDebugOutput() {
 	out << '\n';
 	return true;
 }
+
+
+//TODO refactor into smaller functions
+
+static void restartPhotons(PhotonTracker* stateBuffer, uint32_t finishCount, uint32_t targetCount) {
+
+}
+
+
+static void doOneGPURun(PhotonTracker* stateBuffer, uint32_t finishCount, uint32_t targetCount) {
+
+}
+
+
+static void doOneSimulation(float nAbove, float nBelow, Layer* layersHost, cl_mem layersDevice, int layerCount, size_t layerBufferSize) {
+
+}
+
 
 /**
 * Upload input data to device buffers
@@ -366,4 +441,9 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		CL(ReleaseEvent, kernelEvent); CL(ReleaseEvent, reflectanceTransferEvent);
 	}
 	freeResources();
+}
+
+
+const char* getCLKernelName() {
+	return "mcml";
 }
