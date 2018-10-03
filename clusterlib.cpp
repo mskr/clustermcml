@@ -5,10 +5,11 @@
 #include <assert.h> // assert
 
 // C++
-#include <iostream> // std::cout
+//TODO get rid of everything that uses exceptions
 #include <fstream> // std::ifstream, std::ofstream
 
 // Own
+#include "Log.h"
 #include "clerr2str.h"
 #define DEBUG
 #include "clcheck.h"
@@ -59,7 +60,7 @@ void readCLSourceCode(char* kernelfile, char** outsrc, size_t* outlen) {
 	kfilepath[stri] = '\0';
 	std::ifstream kfilestream(kfilepath, std::fstream::in | std::ifstream::binary);
 	if (!kfilestream.is_open()) {
-		std::cout << "Could not open kernel file \"" << kernelfile << "\"." << std::endl;
+		out << "Could not open kernel file \"" << kernelfile << "\"." << '\n';
 		MPI_Abort(MPI_COMM_WORLD, 1);
 	}
 	size_t kernellen = 0;
@@ -265,10 +266,10 @@ void createCLCommandQueue(cl_context context, cl_device_id device, cl_command_qu
 *
 */
 void usage()  {
-	std::cout << "Usage:" << std::endl;
-	std::cout << "Argument 1: OpenCL kernel file" << std::endl;
-	std::cout << "Argument 2 (optional): OpenCL compiler options" << std::endl;
-	std::cout << "Argument 3 (optional): Options for " << getCLKernelName() << std::endl;
+	out << "Usage:" << '\n';
+	out << "Argument 1: OpenCL kernel file" << '\n';
+	out << "Argument 2 (optional): OpenCL compiler options" << '\n';
+	out << "Argument 3 (optional): Options for " << getCLKernelName() << '\n';
 	MPI_Abort(MPI_COMM_WORLD, 1);
 }
 
@@ -293,8 +294,8 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 	size_t len;
 	if (rank_ == 0) {
 		// Only main process should do I/O
-		std::cout << platformCount << " CL platforms: " << platformNames << std::endl;
-		std::cout << deviceCount << " CL devices: " << deviceNames << std::endl;
+		out << platformCount << " CL platforms: " << platformNames << '\n';
+		out << deviceCount << " CL devices: " << deviceNames << '\n';
 		readCLSourceCode(kernelfile, &src_, &len);
 	}
 	broadcastCLSourceCode(&src_, &len);
@@ -303,7 +304,7 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 4096);
 	if (rank_ == 0) {
 		if (compilationErrors[0] != '\0') {
-			std::cout << compilationErrors << std::endl;
+			out << compilationErrors << '\n';
 			MPI_Abort(MPI_COMM_WORLD, 1);
 		}
 		writeCLByteCode(kernelfile, program_, deviceCount, deviceNames);

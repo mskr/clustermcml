@@ -14,7 +14,7 @@ const char* getCLKernelName() {
 
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* otherOptions,
 int* inputBufferCount, size_t* inputBufferSizes,
-int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
+int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank) {
 
 	// Report sizes for device buffers
 	*inputBufferCount = 0;

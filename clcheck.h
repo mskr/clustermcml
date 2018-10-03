@@ -16,7 +16,7 @@
 	// Error reporting on each CL call when in DEBUG mode
 	#ifdef DEBUG
 
-		#include <iostream>
+		#include "Log.h"
 
 		const char* clerr2str(cl_int);
 
@@ -25,8 +25,8 @@
 		// internal macro
 		#define CLCHECK_(opname) \
 			if(clerrcode != CL_SUCCESS) { \
-				std::cout << clerr2str(clerrcode) << " returned by " << #opname; \
-				std::cout << " at line " << __LINE__ << " in file " << __FILE__ << std::endl; \
+				out << clerr2str(clerrcode) << " returned by " << #opname; \
+				out << " at line " << __LINE__ << " in file " << __FILE__ << '\n'; \
 			}
 
 		// user macros - prefix all your CL calls!

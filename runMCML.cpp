@@ -1,13 +1,12 @@
-#include <iostream> // std::cout
-#include <string> // std::string
+#include <string.h> // strstr
 #include <stdint.h> // uint32_t, uint64_t
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
-#include "randomlib.h"
-
+#include "Log.h" // out stream
+#include "randomlib.h" // wang_hash, rand_xorshift
 #include "Boundary.h"
 #include "Layer.h"
 #include "PhotonState.h"
@@ -54,13 +53,19 @@ static char* debugBuffer = 0;
 */
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions,
 int* inputBufferCount, size_t* inputBufferSizes,
-int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
+int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank) {
 
-	//TODO read with rank 0 and broadcast input data
-	int ignoreA = std::string(kernelOptions).find("-D IGNORE_A") != std::string::npos ? 1 : 0;
-	std::cout << "--- "<<mcmlOptions<<" --->" << std::endl;
-	simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
-	std::cout << "<--- "<<mcmlOptions<<" ---" << std::endl;
+	//TODO since MPI structs are hard work and we are lazy, we read the file with all processes for now
+	// if (rank == 0) {
+		int ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL ? 1 : 0;
+		out << "--- "<<mcmlOptions<<" --->" << '\n';
+		simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
+		out << "<--- "<<mcmlOptions<<" ---" << '\n';
+		// MPI_Bcast(&simCount, 1, MPI_INTEGER, 0, MPI_COMM_WORLD);
+		// MPI_Datatype simStruct;
+		// MPI_Datatype* members = (MPI_Datatype*)malloc()
+		// MPI_Type_struct(simCount, )
+	// }
 
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
@@ -120,7 +125,7 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount) {
 	}
 
 	// Debug buffer
-	int debugMode = std::string(kernelOptions).find("-D DEBUG") != std::string::npos ? 1 : 0;
+	int debugMode = strstr(kernelOptions, "-D DEBUG") != NULL ? 1 : 0;
 	if (debugMode) {
 		debugBuffer = (char*)malloc(2048);
 		outputBufferSizes[(*outputBufferCount)++] = 2048;
@@ -150,18 +155,18 @@ static void freeResources() {
 
 
 static bool handleDebugOutput() {
-	std::cout << std::endl;
+	out << '\n';
 	//TODO print everything as hex view until reaching some unique end symbol
 	int n = 2048/4;
 	float sum = 0.0f;
 	for (int k = 0; k < n; k++) { // print as floats
 		float f = ((float*)debugBuffer)[k];
 		sum += f;
-		std::cout << f << " ";
+		out << f << " ";
 	}
-	std::cout << "sum=" << sum << std::endl;
-	std::cout << "average=" << (sum / n) << std::endl;
-	std::cout << std::endl;
+	out << "sum=" << sum << '\n';
+	out << "average=" << (sum / n) << '\n';
+	out << '\n';
 	return true;
 }
 
@@ -190,13 +195,6 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		float nDiff = nAbove - simulations[simIndex].layers[1].n;
 		float nSum = nAbove + simulations[simIndex].layers[1].n;
 		float R_specular = (nDiff * nDiff) / (nSum * nSum);
-		
-		// Init photon states
-		for (int i = 0; i < totalThreadCount; i++) {
-			PhotonState newState = createNewPhotonState();
-			newState.weight -= R_specular;
-			stateBuffer[i] = newState;
-		}
 
 		// Get RAT buffer info
 		float radialBinCentimeters = simulations[simIndex].det.dr;
@@ -246,14 +244,32 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 
 		size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonState);
 
+		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
+
+		// Distribute photons on processes
+		uint32_t processPhotonCount = targetPhotonCount / processCount;
+		if (rank == 0) { // rank 0 takes the remainder on top
+			processPhotonCount += (targetPhotonCount % processCount);
+		}
+		
+		// Init photon states
+		for (int i = 0; i < totalThreadCount; i++) {
+			if (i < targetPhotonCount) {
+				PhotonState newState = createNewPhotonState();
+				newState.weight -= R_specular;
+				stateBuffer[i] = newState;
+			} else {
+				stateBuffer[i].isDead = 1;
+			}
+		}
+
 		// Run kernel with optimal thread count as long as targeted number of photons allows it
 		//TODO compare perf against CUDAMCML, which does not wait for longest simulating thread,
 		// but instead launches a new photon directly from a thread that would terminate,
 		// causing additional tracking overhead.
-		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
 		uint32_t finishedPhotonCount = 0;
-		std::cout << std::endl;
-		while (finishedPhotonCount < targetPhotonCount) { // stop when target reached
+		if (rank == 0) out << '\n';
+		while (finishedPhotonCount < processPhotonCount) {
 
 			// Upload photon states
 			//TODO since buffer updates are sparse, map could be faster than write in whole
@@ -272,7 +288,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			// Download photon states
 			CL(EnqueueReadBuffer, cmdQueue, outputBuffers[0], CL_FALSE, 0,
 				photonStateBufferSize, stateBuffer, 0, NULL, NULL);
-			if (debugBuffer) {
+			if (debugBuffer) { // download debug buffer if in debug mode
 				CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + 3 * simCount], CL_FALSE, 0, 2048, debugBuffer, 0, NULL, NULL);
 			}
 
@@ -287,7 +303,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 				if (stateBuffer[i].weight == 0 && !(stateBuffer[i].isDead)) {
 					finishedPhotonCount++;
 					// Launch new only if next round cannot overachieve
-					if (finishedPhotonCount + totalThreadCount <= targetPhotonCount) {
+					if (finishedPhotonCount + totalThreadCount <= processPhotonCount) {
 						PhotonState newState = createNewPhotonState();
 						newState.weight -= R_specular;
 						newState.rngState = wang_hash(finishedPhotonCount + totalThreadCount);
@@ -298,12 +314,13 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 				}
 			}
 
+			uint32_t totalFinishedPhotonCount = 0;
+			MPI_Reduce(&finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+
 			// Print status
-			if (rank == 0) {
-				std::cout << '\r' << "Photons terminated: " << finishedPhotonCount << "/" << targetPhotonCount << std::flush;
-			}
+			if (rank == 0) out << '\r' << "Photons terminated: " << totalFinishedPhotonCount << "/" << targetPhotonCount << Log::flush;
 		}
-		std::cout << std::endl;
+		if (rank == 0) out << '\n';
 
 		// Download RAT
 		CL(EnqueueReadBuffer, cmdQueue, outputBuffers[1 + simIndex], CL_FALSE, 0,
@@ -314,23 +331,34 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			absorptionBufferSize, absorptionPerSimulation[simIndex], 0, NULL, NULL);
 		CL(Finish, cmdQueue);
 
+		// Sum RAT buffers from all processes
+		uint64_t* totalReflectance = (uint64_t*)malloc(reflectanceBufferSize);
+		MPI_Reduce(reflectancePerSimulation[simIndex], totalReflectance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		uint64_t* totalTransmittance = (uint64_t*)malloc(reflectanceBufferSize);
+		MPI_Reduce(transmissionPerSimulation[simIndex], totalTransmittance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		uint64_t* totalAbsorption = (uint64_t*)malloc(reflectanceBufferSize);
+		MPI_Reduce(absorptionPerSimulation[simIndex], totalAbsorption, radialBinCount*depthBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+
 		// Write output
 		if (rank == 0) {
-			cl_ulong timeStart = 0, timeEnd = 0;
-			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
-			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);
-			std::cout << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
+			uint64_t timeStart = 0, timeEnd = 0;
+			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
+			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
+			out << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 
-			uint64_t* R_ra = reflectancePerSimulation[simIndex];
-			uint64_t* T_ra = transmissionPerSimulation[simIndex];
-			uint64_t* A_rz = absorptionPerSimulation[simIndex];
-
+			uint64_t* R_ra = totalAbsorption;
+			uint64_t* T_ra = totalTransmittance;
+			uint64_t* A_rz = totalAbsorption;
 			Write_Simulation_Results(A_rz, T_ra, R_ra, &simulations[simIndex], timeEnd - timeStart);
 
-			CL(GetEventProfilingInfo, reflectanceTransferEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &timeStart, NULL);
-			CL(GetEventProfilingInfo, reflectanceTransferEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &timeEnd, NULL);
-			std::cout << "Transfertime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
+			CL(GetEventProfilingInfo, reflectanceTransferEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
+			CL(GetEventProfilingInfo, reflectanceTransferEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
+			out << "Transfertime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 		}
+
+		free(totalReflectance);
+		free(totalTransmittance);
+		free(totalAbsorption);
 
 		CL(ReleaseEvent, kernelEvent); CL(ReleaseEvent, reflectanceTransferEvent);
 	}

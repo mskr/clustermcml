@@ -10,7 +10,7 @@
 // interfaces for external code
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* otherOptions,
 	int* inputBufferCount, size_t* inputBufferSizes,
-	int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount);
+	int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank);
 void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
 	size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 #ifdef GL_VISUALIZATION
@@ -33,7 +33,7 @@ int main(int nargs, char** args) {
 	int inputBufferCount = 0, outputBufferCount = 0;
 	size_t inputBufferSizes[10], outputBufferSizes[10];
 	int inputBuffers[10], outputBuffers[10];
-	allocCLKernelResources(1, "", filename, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10);
+	allocCLKernelResources(1, "", filename, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10, 0);
 	runCLKernel(0, 0, 0, 0, 0, 1, 1, 1, 0);
 	return 0;
 
@@ -57,7 +57,7 @@ int main(int nargs, char** args) {
 	int inputBufferCount = 0, outputBufferCount = 0;
 	size_t inputBufferSizes[10], outputBufferSizes[10];
 	cl_mem inputBuffers[10], outputBuffers[10];
-	allocCLKernelResources(totalThreadCount, kernelOptions, otherOptions, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10);
+	allocCLKernelResources(totalThreadCount, kernelOptions, otherOptions, &inputBufferCount, inputBufferSizes, &outputBufferCount, outputBufferSizes, 10, getRank());
 
 	// Host buffers were created and sizes reported, now create CL buffers, optionally with GL interop
 	for (int i = 0; i < inputBufferCount; i++) {
