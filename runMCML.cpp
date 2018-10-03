@@ -337,9 +337,9 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		// Sum RAT buffers from all processes
 		uint64_t* totalReflectance = (uint64_t*)malloc(reflectanceBufferSize);
 		MPI_Reduce(reflectancePerSimulation[simIndex], totalReflectance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-		uint64_t* totalTransmittance = (uint64_t*)malloc(reflectanceBufferSize);
+		uint64_t* totalTransmittance = (uint64_t*)malloc(transmissionBufferSize);
 		MPI_Reduce(transmissionPerSimulation[simIndex], totalTransmittance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-		uint64_t* totalAbsorption = (uint64_t*)malloc(reflectanceBufferSize);
+		uint64_t* totalAbsorption = (uint64_t*)malloc(absorptionBufferSize);
 		MPI_Reduce(absorptionPerSimulation[simIndex], totalAbsorption, radialBinCount*depthBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
 
 		// Write output
