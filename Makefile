@@ -64,7 +64,7 @@ main.preprocessed.cpp: main.cpp clusterlib.h
 runMCML-windows.o: runMCML.preprocessed.cpp
 	$(MSVC)/cl runMCML.preprocessed.cpp /c /Fo"runMCML-windows.o"
 
-runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonState.h
+runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h
 	$(MSVC)/cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
@@ -114,7 +114,7 @@ cpumcml-main-windows.o: main.cpp clusterlib.h
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cpumcml-main-windows.o"
 
-cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonState.h
+cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h
 	$(MSVC)/cl runMCML.cpp /c /Zi \
 		/D"CL2CPU" \
 		/I$(MSVC_INCLUDE) \
@@ -124,7 +124,7 @@ cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer
 cpumcml-kernel-windows.o: kernel.c.preprocessed.cpp
 	$(MSVC)/cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpumcml-kernel-windows.o"
 
-kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonState.h randomlib.h
+kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonTracker.h randomlib.h
 	$(MSVC)/cl kernel.c.cpp /c \
 		/D"CL2CPU" \
 		/I$(MSVC_INCLUDE) \

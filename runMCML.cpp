@@ -7,19 +7,22 @@
 
 #include "Log.h" // out stream
 #include "randomlib.h" // wang_hash, rand_xorshift
-#include "Boundary.h"
-#include "Layer.h"
-#include "PhotonState.h"
 
 #define DEBUG
-#include "clcheck.h"
+#include "clcheck.h" // CL macro
 
+// Data structures
+#include "Boundary.h"
+#include "Layer.h"
+#include "PhotonTracker.h"
+
+// Declaration of kernel function to be able to use it from CPU code
 void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
 int size_r, int size_a, int size_z, float delta_r,  float delta_z,
 volatile uint64_t* R_ra, volatile uint64_t* T_ra, volatile uint64_t* A_rz,
-struct PhotonState* photonStates);
+struct PhotonTracker* photonStates);
 
-static PhotonState createNewPhotonState() {
+static PhotonTracker createNewPhotonTracker() {
 	return {
 		0.0f, 0.0f, 0.0f, // start position
 		0.0f, 0.0f, 1.0f, // start direction
@@ -43,7 +46,7 @@ static uint64_t** reflectancePerSimulation = 0;
 static uint64_t** transmissionPerSimulation = 0;
 static uint64_t** absorptionPerSimulation = 0;
 
-static PhotonState* stateBuffer = 0;
+static PhotonTracker* stateBuffer = 0;
 static char* debugBuffer = 0;
 
 /**
@@ -73,8 +76,8 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank)
 	absorptionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 
 	// Photon states buffer
-	stateBuffer = (PhotonState*)malloc(totalThreadCount * sizeof(PhotonState));
-	outputBufferSizes[0] = totalThreadCount * sizeof(PhotonState);
+	stateBuffer = (PhotonTracker*)malloc(totalThreadCount * sizeof(PhotonTracker));
+	outputBufferSizes[0] = totalThreadCount * sizeof(PhotonTracker);
 
 	*inputBufferCount = simCount;
 	*outputBufferCount = 1 + 3 * simCount;
@@ -242,7 +245,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 
 		cl_event kernelEvent, reflectanceTransferEvent;
 
-		size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonState);
+		size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonTracker);
 
 		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
 
@@ -255,7 +258,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 		// Init photon states
 		for (int i = 0; i < totalThreadCount; i++) {
 			if (i < targetPhotonCount) {
-				PhotonState newState = createNewPhotonState();
+				PhotonTracker newState = createNewPhotonTracker();
 				newState.weight -= R_specular;
 				stateBuffer[i] = newState;
 			} else {
@@ -304,7 +307,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 					finishedPhotonCount++;
 					// Launch new only if next round cannot overachieve
 					if (finishedPhotonCount + totalThreadCount <= processPhotonCount) {
-						PhotonState newState = createNewPhotonState();
+						PhotonTracker newState = createNewPhotonTracker();
 						newState.weight -= R_specular;
 						newState.rngState = wang_hash(finishedPhotonCount + totalThreadCount);
 						stateBuffer[i] = newState;

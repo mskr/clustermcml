@@ -1,4 +1,4 @@
-struct PhotonState {
+struct PhotonTracker {
 	float x, y, z; // pos [cm]
 	float dx, dy, dz; // dir
 	float weight; // 1 at start, zero when terminated
