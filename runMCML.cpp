@@ -39,14 +39,15 @@ static PhotonTracker createNewPhotonTracker() {
 
 static MPI_Datatype createMPISimulationStruct() {
 	// Describing the following data layout:
-	// 	unsigned long number_of_photons;
-	// 	int ignoreAdetection;
-	// 	unsigned int n_layers;
-	// 	unsigned int start_weight;
-	// 	char outp_filename[STR_LEN];
-	// 	char inp_filename[STR_LEN];
-	// 	long begin,end;
-	// 	char AorB;
+	// uint32_t number_of_photons;
+	// uint32_t ignoreAdetection;
+	// uint32_t n_layers;
+	// uint32_t start_weight;
+	// uint32_t begin,end; // mci file position offsets
+	// uint32_t padding; // enforce 8 byte alignment
+	// char outp_filename[STR_LEN];
+	// char inp_filename[STR_LEN];
+	// char AorB, padding[7]; // enforce alignment
 	// {
 	// 	float dr;		// Detection grid resolution, r-direction [cm]
 	// 	float dz;		// Detection grid resolution, z-direction [cm]
@@ -54,24 +55,16 @@ static MPI_Datatype createMPISimulationStruct() {
 	// 	int nr;			// Number of grid elements in r-direction
 	// 	int nz;			// Number of grid elements in z-direction
 	// }
-	// 	LayerStruct* layers;
-	int blockLengths[11] = {1,1,1,1,STR_LEN,STR_LEN,2,1,2,3,sizeof(void*)};
-	int offsets[11]; int sum = 0;
-	offsets[0] = (sum + 0);
-	offsets[1] = (sum + sizeof(unsigned long));
-	offsets[2] = (sum + sizeof(int));
-	offsets[3] = (sum + sizeof(unsigned int));
-	offsets[4] = (sum + sizeof(unsigned int));
-	offsets[5] = (sum + sizeof(char) * STR_LEN);
-	offsets[6] = (sum + sizeof(char) * STR_LEN);
-	offsets[7] = (sum + sizeof(long) * 2);
-	offsets[8] = (sum + sizeof(char));
-	offsets[9] = (sum + sizeof(float) * 2);
-	offsets[10] = (sum + sizeof(int) * 3);
-	MPI_Datatype types[11] = {MPI_UNSIGNED_LONG, MPI_INT, MPI_UNSIGNED, MPI_UNSIGNED,
-		MPI_CHAR, MPI_CHAR, MPI_LONG, MPI_CHAR, MPI_FLOAT, MPI_INT, MPI_CHAR};
+	// LayerStruct* layers;
+	int blockLengths[5] = {6,STR_LEN*2+8,2,4,sizeof(void*)};
+	int offsets[5]; int sum = 0; offsets[0] = 0;
+	offsets[1] = (sum += sizeof(uint32_t) * 6);
+	offsets[2] = (sum += STR_LEN * 2 + 8);
+	offsets[3] = (sum += sizeof(float) * 2);
+	offsets[4] = (sum += sizeof(uint32_t) * 4);
+	MPI_Datatype types[5] = {MPI_UINT32_T,MPI_CHAR,MPI_FLOAT,MPI_UINT32_T,MPI_CHAR};
 	MPI_Datatype simStruct;
-	MPI(Type_create_struct, 11, blockLengths, offsets, types, &simStruct);
+	MPI(Type_create_struct, 5, blockLengths, offsets, types, &simStruct);
 	MPI(Type_commit, &simStruct);
 	return simStruct;
 }
@@ -120,11 +113,19 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank)
 	MPI(Bcast, &simCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	if (rank != 0)
 		simulations = (SimulationStruct*)malloc(simCount * sizeof(SimulationStruct));
-	MPI(Bcast, simulations, simCount, createMPISimulationStruct(), 0, MPI_COMM_WORLD);
+	MPI_Datatype mpiSimStruct = createMPISimulationStruct();
+	int mpiSimSize = 0;
+	MPI(Type_size, mpiSimStruct, &mpiSimSize);
+	assert(mpiSimSize == sizeof(SimulationStruct));
+	MPI(Bcast, simulations, simCount, mpiSimStruct, 0, MPI_COMM_WORLD);
+	MPI_Datatype mpiLayerStruct = createMPILayerStruct();
+	int mpiLayerSize = 0;
+	MPI(Type_size, mpiLayerStruct, &mpiLayerSize);
+	assert(mpiLayerSize == sizeof(LayerStruct));
 	for (int i = 0; i < simCount; i++) {
 		if (rank != 0)
 			simulations[i].layers = (LayerStruct*)malloc((simulations[i].n_layers + 2) * sizeof(LayerStruct));
-		MPI(Bcast, simulations[i].layers, simulations[i].n_layers + 2, createMPILayerStruct(), 0, MPI_COMM_WORLD);
+		MPI(Bcast, simulations[i].layers, simulations[i].n_layers + 2, mpiLayerStruct, 0, MPI_COMM_WORLD);
 	}
 
 	// Allocate per-simulation arrays
@@ -425,7 +426,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
 			out << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 
-			uint64_t* R_ra = totalAbsorption;
+			uint64_t* R_ra = totalReflectance;
 			uint64_t* T_ra = totalTransmittance;
 			uint64_t* A_rz = totalAbsorption;
 			Write_Simulation_Results(A_rz, T_ra, R_ra, &simulations[simIndex], timeEnd - timeStart);

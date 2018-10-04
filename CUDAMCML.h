@@ -18,46 +18,38 @@
 
 #define PI 3.14159265359
 
-#define STR_LEN 200
+#define STR_LEN 200 // should align to 4 and 8 byte edge for portable struct sizes
 
 #define NFLOATS 5
 #define NINTS 5
 
-// TYPEDEFS
-typedef struct 
-{
+struct LayerStruct {
 	float z_min;		// Layer z_min [cm]
 	float z_max;		// Layer z_max [cm]
 	float mutr;			// Reciprocal mu_total [cm]
 	float mua;			// Absorption coefficient [1/cm]
 	float g;			// Anisotropy factor [-]
 	float n;			// Refractive index [-]
-}LayerStruct;
+};
 
-typedef struct 
-{
-	float dr;		// Detection grid resolution, r-direction [cm]
-	float dz;		// Detection grid resolution, z-direction [cm]
-	
-	int na;			// Number of grid elements in angular-direction [-]
-	int nr;			// Number of grid elements in r-direction
-	int nz;			// Number of grid elements in z-direction
-
-}DetStruct;
-
-
-typedef struct 
-{
-	unsigned long number_of_photons;
-	int ignoreAdetection;
-	unsigned int n_layers;
-	unsigned int start_weight;
+struct SimulationStruct {
+	uint32_t number_of_photons;
+	uint32_t ignoreAdetection;
+	uint32_t n_layers;
+	uint32_t start_weight;
+	uint32_t begin,end; 		// mci file position offsets
 	char outp_filename[STR_LEN];
 	char inp_filename[STR_LEN];
-	long begin,end;
-	char AorB;
-	DetStruct det;
+	char AorB, padding[7]; 	// enforce 8 byte alignment
+	struct DetStruct {
+		float dr;				// Detection grid resolution, r-direction [cm]
+		float dz;				// Detection grid resolution, z-direction [cm]
+		uint32_t na;			// Number of grid elements in angular-direction [-]
+		uint32_t nr;			// Number of grid elements in r-direction
+		uint32_t nz;			// Number of grid elements in z-direction
+		uint32_t padding; 		// enforce 8 byte alignment
+	} det;
 	LayerStruct* layers;
-}SimulationStruct;
+};
 
 #endif //CUDAMCML_H
