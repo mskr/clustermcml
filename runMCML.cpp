@@ -43,18 +43,18 @@ static MPI_Datatype createMPISimulationStruct() {
 	// uint32_t ignoreAdetection;
 	// uint32_t n_layers;
 	// uint32_t start_weight;
-	// uint32_t begin,end; // mci file position offsets
-	// uint32_t padding; // enforce 8 byte alignment
+	// uint32_t begin,end; 		// mci file position offsets
 	// char outp_filename[STR_LEN];
 	// char inp_filename[STR_LEN];
-	// char AorB, padding[7]; // enforce alignment
-	// {
-	// 	float dr;		// Detection grid resolution, r-direction [cm]
-	// 	float dz;		// Detection grid resolution, z-direction [cm]
-	// 	int na;			// Number of grid elements in angular-direction [-]
-	// 	int nr;			// Number of grid elements in r-direction
-	// 	int nz;			// Number of grid elements in z-direction
-	// }
+	// char AorB, padding[7]; 	// enforce 8 byte alignment
+	// struct DetStruct {
+	// 	float dr;				// Detection grid resolution, r-direction [cm]
+	// 	float dz;				// Detection grid resolution, z-direction [cm]
+	// 	uint32_t na;			// Number of grid elements in angular-direction [-]
+	// 	uint32_t nr;			// Number of grid elements in r-direction
+	// 	uint32_t nz;			// Number of grid elements in z-direction
+	// 	uint32_t padding; 		// enforce 8 byte alignment
+	// } det;
 	// LayerStruct* layers;
 	int blockLengths[5] = {6,STR_LEN*2+8,2,4,sizeof(void*)};
 	int offsets[5]; int sum = 0; offsets[0] = 0;
