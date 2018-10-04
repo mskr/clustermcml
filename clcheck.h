@@ -20,8 +20,6 @@
 
 		const char* clerr2str(cl_int);
 
-		static cl_int clerrcode = CL_SUCCESS;
-
 		// internal macro
 		#define CLCHECK_(opname) \
 			if(clerrcode != CL_SUCCESS) { \
@@ -30,8 +28,8 @@
 			}
 
 		// user macros - prefix all your CL calls!
-		#define CL(opname, ...) clerrcode = cl ## opname (__VA_ARGS__); CLCHECK_(cl ## opname);
-		#define CLCREATE(opname, ...) clCreate ## opname (__VA_ARGS__, &clerrcode); CLCHECK_(clCreate ## opname);
+		#define CL(opname, ...) { cl_int clerrcode = cl ## opname (__VA_ARGS__); CLCHECK_(cl ## opname); }
+		#define CLCREATE(opname, ...) { cl_int clerrcode = CL_SUCCESS; clCreate ## opname (__VA_ARGS__, &clerrcode); CLCHECK_(clCreate ## opname); }
 
 	// Raw CL calls ignoring error codes when in non-debug mode
 	#else
