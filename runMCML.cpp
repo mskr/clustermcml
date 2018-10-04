@@ -11,6 +11,7 @@
 
 #define DEBUG
 #include "clcheck.h" // CL macro
+#include "mpicheck.h" // MPI macro
 
 // Data structures
 #include "Boundary.h"
@@ -70,8 +71,8 @@ static MPI_Datatype createMPISimulationStruct() {
 	MPI_Datatype types[11] = {MPI_UNSIGNED_LONG, MPI_INT, MPI_UNSIGNED, MPI_UNSIGNED,
 		MPI_CHAR, MPI_CHAR, MPI_LONG, MPI_CHAR, MPI_FLOAT, MPI_INT, MPI_CHAR};
 	MPI_Datatype simStruct;
-	MPI_Type_create_struct(11, blockLengths, offsets, types, &simStruct);
-	MPI_Type_commit(&simStruct);
+	MPI(Type_create_struct, 11, blockLengths, offsets, types, &simStruct);
+	MPI(Type_commit, &simStruct);
 	return simStruct;
 }
 
@@ -81,8 +82,8 @@ static MPI_Datatype createMPILayerStruct() {
 	int offsets[6]; for (int k = 0; k < 6; k++) offsets[k] = k * sizeof(float);
 	MPI_Datatype types[6] = {MPI_FLOAT,MPI_FLOAT,MPI_FLOAT,MPI_FLOAT,MPI_FLOAT,MPI_FLOAT};
 	MPI_Datatype layerStruct;
-	MPI_Type_create_struct(6, blockLengths, offsets, types, &layerStruct);
-	MPI_Type_commit(&layerStruct);
+	MPI(Type_create_struct, 6, blockLengths, offsets, types, &layerStruct);
+	MPI(Type_commit, &layerStruct);
 	return layerStruct;
 }
 
@@ -116,17 +117,17 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank)
 		simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
 		out << "<--- "<<mcmlOptions<<" ---" << '\n';
 	}
-	MPI_Bcast(&simCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI(Bcast, &simCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	if (rank != 0)
 		simulations = (SimulationStruct*)malloc(simCount * sizeof(SimulationStruct));
-	MPI_Bcast(simulations, simCount, createMPISimulationStruct(), 0, MPI_COMM_WORLD);
+	MPI(Bcast, simulations, simCount, createMPISimulationStruct(), 0, MPI_COMM_WORLD);
 	for (int i = 0; i < simCount; i++) {
-		MPI_Bcast(&simulations[i].n_layers, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
 		if (rank != 0)
-			simulations[i].layers = (LayerStruct*)malloc(simulations[i].n_layers * sizeof(LayerStruct));
-		MPI_Bcast(simulations[i].layers, simulations[i].n_layers, createMPILayerStruct(), 0, MPI_COMM_WORLD);
+			simulations[i].layers = (LayerStruct*)malloc((simulations[i].n_layers + 2) * sizeof(LayerStruct));
+		MPI(Bcast, simulations[i].layers, simulations[i].n_layers + 2, createMPILayerStruct(), 0, MPI_COMM_WORLD);
 	}
 
+	// Allocate per-simulation arrays
 	layersPerSimulation = (Layer**)malloc(simCount * sizeof(Layer*));
 	reflectancePerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
 	transmissionPerSimulation = (uint64_t**)malloc(simCount * sizeof(uint64_t*));
@@ -393,7 +394,7 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 			}
 
 			uint32_t totalFinishedPhotonCount = 0;
-			MPI_Reduce(&finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+			MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
 
 			// Print status
 			if (rank == 0) out << '\r' << "Photons terminated: " << totalFinishedPhotonCount << "/" << targetPhotonCount << Log::flush;
@@ -411,11 +412,11 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 
 		// Sum RAT buffers from all processes
 		uint64_t* totalReflectance = (uint64_t*)malloc(reflectanceBufferSize);
-		MPI_Reduce(reflectancePerSimulation[simIndex], totalReflectance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI(Reduce, reflectancePerSimulation[simIndex], totalReflectance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
 		uint64_t* totalTransmittance = (uint64_t*)malloc(transmissionBufferSize);
-		MPI_Reduce(transmissionPerSimulation[simIndex], totalTransmittance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI(Reduce, transmissionPerSimulation[simIndex], totalTransmittance, radialBinCount*angularBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
 		uint64_t* totalAbsorption = (uint64_t*)malloc(absorptionBufferSize);
-		MPI_Reduce(absorptionPerSimulation[simIndex], totalAbsorption, radialBinCount*depthBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		MPI(Reduce, absorptionPerSimulation[simIndex], totalAbsorption, radialBinCount*depthBinCount, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
 
 		// Write output
 		if (rank == 0) {
