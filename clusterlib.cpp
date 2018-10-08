@@ -304,7 +304,7 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 4096);
 	if (rank_ == 0) {
 		if (compilationErrors[0] != '\0') {
-			out << compilationErrors << '\n';
+			out << compilationErrors << '\n' << Log::flush;
 			MPI_Abort(MPI_COMM_WORLD, 1);
 		}
 		writeCLByteCode(kernelfile, program_, deviceCount, deviceNames);
