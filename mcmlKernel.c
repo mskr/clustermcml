@@ -20,7 +20,7 @@
 
 #include "Boundary.h"
 #include "Layer.h"
-#include "PhotonState.h"
+#include "PhotonTracker.h"
 
 // find ray-plane intersection point
 // if found return path length to intersection
@@ -218,11 +218,11 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, int size_z, float delta_r,  float delta_z,
 volatile __global ulong* R_ra, volatile __global ulong* T_ra, volatile __global ulong* A_rz,
-__global struct PhotonState* photonStates
+__global struct PhotonTracker* photonStates
 DEBUG_BUFFER_ARG)
 {
 	// Get current photon state
-	__global struct PhotonState* state = &photonStates[get_global_id(0)];
+	__global struct PhotonTracker* state = &photonStates[get_global_id(0)];
 	if (state->isDead) {
 		// This photon was not restarted because enough are in the pipeline
 		return; // nothing to do
