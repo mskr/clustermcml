@@ -281,13 +281,13 @@ DEBUG_BUFFER_ARG)
 			// Record A
 			#ifndef IGNORE_A
 			{
-				float r = length(pos.xy);
-				int i = (int)floor(r / delta_r);
-				i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
 				float z = pos.z;
-				int j = (int)floor(z / delta_z);
-				j = min(j, size_z - 1);
-				add(&A_rz[i * size_z + j], (uint)(dW * 0xFFFFFFFF));
+				int i = (int)floor(z / delta_z);
+				i = min(i, size_z - 1);
+				float r = length(pos.xy);
+				int j = (int)floor(r / delta_r);
+				j = min(j, size_r - 1); // all overflowing values are accumulated at the edges
+				add(&A_rz[i * size_r + j], (uint)(dW * 0xFFFFFFFF));
 			}
 			#endif
 
