@@ -1,7 +1,6 @@
-//TODO Boundary with customizable shapes
-// Q: Which shapes make sense with respect to layers intersecting each other?
+#define BOUNDARY_SAMPLES 100
 
 struct Boundary {
-	float z; // depth
-	float nx, ny, nz; // normal
+	float ox, oy, oz; // origin
+	float heightfield[BOUNDARY_SAMPLES];
 };

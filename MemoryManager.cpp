@@ -1,1 +1,0 @@
-//TODO provide functions to allocate/read/write host and device memory

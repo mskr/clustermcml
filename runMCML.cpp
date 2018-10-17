@@ -154,6 +154,12 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount, int rank)
 		Layer* layers = (Layer*)malloc(layerCount * sizeof(Layer));
 		layersPerSimulation[simIndex] = layers;
 		for (int j = 1; j <= layerCount; j++) {
+
+
+
+
+			//TODO we need now one more layer at the bottom because we have only upperBound for each
+			
 			layers[j - 1] = {
 				simulations[simIndex].layers[j].mua,
 				1.0f / simulations[simIndex].layers[j].mutr - simulations[simIndex].layers[j].mua,
