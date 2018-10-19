@@ -347,13 +347,8 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 /**
 *
 */
-void cleanupCluster(int inputBufferCount, cl_mem* inputBuffers, int outputBufferCount, cl_mem* outputBuffers,
-cl_context context, cl_command_queue cmdQueue, cl_kernel kernel) {
+void cleanupCluster(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel) {
 	assert(initialized_);
-	for (int i = 0; i < inputBufferCount; i++)
-		CL(ReleaseMemObject, inputBuffers[i]);
-	for (int i = 0; i < outputBufferCount; i++)
-		CL(ReleaseMemObject, outputBuffers[i]);
 	CL(ReleaseKernel, kernel);
 	CL(ReleaseProgram, program_);
 	CL(ReleaseCommandQueue, cmdQueue);

@@ -45,11 +45,12 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount);
 /**
 *
 */
-void cleanupCluster(int inputBufferCount, cl_mem* inputBuffers, int outputBufferCount, cl_mem* outputBuffers,
-cl_context context, cl_command_queue cmdQueue, cl_kernel kernel);
+void cleanupCluster(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel);
 
 
 //TODO manage better work distribution:
+// Common case will be 2 GPUs + 1 CPU
+// should use 2 separate contexts
 struct CLDeviceInfo {
 	cl_command_queue queue;
 	int totalThreadCount;
