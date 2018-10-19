@@ -23,6 +23,8 @@
 
 #include "CUDAMCML.h"
 
+#define EXPLICIT_BOUNDARIES
+
 int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
 {
 
@@ -394,8 +396,11 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 
 		// Allocate memory for the layers (including one for the upper and one for the lower)
 		(*simulations)[i].layers = (LayerStruct*) malloc(sizeof(LayerStruct)*(n_layers+2));
-		if((*simulations)[i].layers == NULL){perror("Failed to malloc layers.\n");return 0;}//{printf("Failed to malloc simulations.\n");return 0;}
+		if((*simulations)[i].layers == NULL){perror("Failed to malloc layers.\n");return 0;}
 
+		// Allocate memory for the boundaries
+		(*simulations)[i].boundaries = (Boundary*)malloc(sizeof(Boundary)*(n_layers+1));
+		if((*simulations)[i].boundaries == NULL){perror("Failed to malloc boundaries.\n");return 0;}
 
 		// Read upper refractive index (1xfloat)
 		if(!readfloats(1, ftemp, pFile)){perror ("Error reading upper refractive index");return 0;}
@@ -405,6 +410,10 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 		dtot=0;
 		for(ii=1;ii<=n_layers;ii++)
 		{
+			#ifdef EXPLICIT_BOUNDARIES
+			// Read boundary data
+			if(!readfloats(BOUNDARY_SAMPLES, (*simulations)[i].boundaries[ii-1].heightfield, pFile)){perror ("Error reading boundary data");return 0;}
+			#endif
 			// Read Layer data (5x float)
 			if(!readfloats(5, ftemp, pFile)){perror ("Error reading layer data");return 0;}
 			printf("n=%f, mua=%f, mus=%f, g=%f, d=%f\n",ftemp[0],ftemp[1],ftemp[2],ftemp[3],ftemp[4]);
@@ -419,6 +428,11 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 			//printf("mutr=%f\n",(*simulations)[i].layers[ii].mutr);
 			//printf("z_min=%f, z_max=%f\n",(*simulations)[i].layers[ii].z_min,(*simulations)[i].layers[ii].z_max);
 		}//end ii<n_layers
+
+		#ifdef EXPLICIT_BOUNDARIES
+		// One more boundary
+		if(!readfloats(BOUNDARY_SAMPLES, (*simulations)[i].boundaries[n_layers].heightfield, pFile)){perror ("Error reading last boundary data");return 0;}
+		#endif
 
 		// Read lower refractive index (1xfloat)
 		if(!readfloats(1, ftemp, pFile)){perror ("Error reading lower refractive index");return 0;}

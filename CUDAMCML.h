@@ -50,6 +50,7 @@ struct SimulationStruct {
 		uint32_t padding; 		// enforce 8 byte alignment
 	} det;
 	LayerStruct* layers;
+	struct Boundary* boundaries;
 };
 
 #endif //CUDAMCML_H
