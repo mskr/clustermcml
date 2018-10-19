@@ -213,7 +213,29 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 #define MAX_ITERATIONS 1000
 
 /**
+* Monte carlo photon transport in multilayered media.
+* 
+* Input is an array of layers as well as
+* the diffractive indices of the media above and below.
+* 
+* Output is consisting of
+* Reflectance (diffuse), Absorption and Transmittance,
+* detected on a grid whose one dimension is
+* radius, meaning distance from origin in xy-plane
+* and other dimension is escape angle resp. z-depth.
+* The grid has configurable size and bin delta.
+* Delta units are centimeters.
+* Angle delta is implicitly given as angles will be
+* between 0 and 90 degrees.
 *
+* This is a kernel function able to run on GPUs.
+* Using the GPU for too long would cause the OS
+* to terminate the process. Therefore a fixed
+* number of photon bounces is done per round.
+* To keep track of photon states across rounds,
+* an array of tracker structs which size equals
+* the number of photons that the GPU can simulate
+* in parallel.
 */
 __kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
 int size_r, int size_a, int size_z, float delta_r,  float delta_z,
