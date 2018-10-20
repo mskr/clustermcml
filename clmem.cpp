@@ -21,8 +21,13 @@ void setCLMemContext(cl_context c) {
 }
 
 cl_mem allocCLInputBuffer(size_t size) {
+	#ifdef NO_GPU
+	static int handle = 0;
+	handle++;
+	#else
 	assert(context);
 	cl_mem handle = CLCREATE(Buffer, context, CL_MEM_READ_ONLY, size, NULL);
+	#endif
 	void* pointer = malloc(size);
 	assert(pointer);
 	map[handle] = pointer;
@@ -30,6 +35,10 @@ cl_mem allocCLInputBuffer(size_t size) {
 }
 
 cl_mem allocCLOutputBuffer(size_t size) {
+	#ifdef NO_GPU
+	static int handle = 0;
+	handle++;
+	#else
 	assert(context);
 	cl_mem handle;
 	#ifdef GL_VISUALIZATION
@@ -41,7 +50,8 @@ cl_mem allocCLOutputBuffer(size_t size) {
 	} else handle = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, size, NULL);
 	#else
 	handle = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, size, NULL);
-	#endif
+	#endif // GL_VISUALIZATION
+	#endif // NO_GPU
 	void* pointer = malloc(size);
 	assert(pointer);
 	map[handle] = pointer;

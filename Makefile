@@ -107,7 +107,7 @@ clmem.preprocessed.cpp: clmem.cpp
 
 
 ################################################################################
-# Windows CPU build, with debug information
+# Windows "No GPU" build, with debug information
 ################################################################################
 
 cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o clmem-windows.o
@@ -119,14 +119,14 @@ cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-ke
 
 cpumcml-main-windows.o: main.cpp clusterlib.h clmem.h
 	$(MSVC)/cl main.cpp /c /Zi \
-		/D"CL2CPU" \
+		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cpumcml-main-windows.o"
 
 cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
 	$(MSVC)/cl runMCML.cpp /c /Zi \
-		/D"CL2CPU" \
+		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cpumcml-runMCML-windows.o"
@@ -136,7 +136,7 @@ cpumcml-kernel-windows.o: kernel.c.preprocessed.cpp
 
 kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonTracker.h randomlib.h
 	$(MSVC)/cl kernel.c.cpp /c \
-		/D"CL2CPU" \
+		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/P /Fi"kernel.c.preprocessed.cpp"
@@ -183,7 +183,7 @@ clusterlib-windows-debug.o: clusterlib.preprocessed.cpp
 randomlib-windows-debug.o: randomlib.preprocessed.c
 	$(MSVC)/cl randomlib.preprocessed.c /c /Zi /Fo"randomlib-windows-debug.o"
 clmem-windows-debug.o: clmem.preprocessed.cpp
-	$(MSVC)/cl clmem.pp /c /Zi /Fo"clmem-windows-debug.o"
+	$(MSVC)/cl clmem.preprocessed.cpp /c /Zi /Fo"clmem-windows-debug.o"
 
 
 

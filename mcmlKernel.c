@@ -4,7 +4,7 @@
 // uncomment to use 64 bit atomics if supported
 //#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
-#ifdef CL2CPU
+#ifdef NO_GPU
 #include "randomlib.h" // rand_lcg, rand_xorshift
 #else
 #define const __constant

@@ -3,7 +3,7 @@
 #define DEBUG
 #include "clcheck.h"
 
-#ifndef CL2CPU
+#ifndef NO_GPU
 #include "clusterlib.h"
 #endif
 
@@ -21,7 +21,7 @@ void runGLRenderLoop();
 */
 int main(int nargs, char** args) {
 
-	#ifdef CL2CPU
+	#ifdef NO_GPU
 
 	// Expect input file name
 	assert(nargs == 2);
@@ -73,7 +73,7 @@ int main(int nargs, char** args) {
 	freeCLMem();
 	cleanupCluster(context, cmdQueue1, kernel);
 
-	#endif // CL2CPU
+	#endif // NO_GPU
 }
 
 // hello world example
