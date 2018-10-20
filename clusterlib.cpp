@@ -299,9 +299,9 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 		readCLSourceCode(kernelfile, &src_, &len);
 	}
 	broadcastCLSourceCode(&src_, &len);
-	char compilationErrors[4096];
+	char compilationErrors[4096*4];
 	compilationErrors[0] = '\0';
-	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 4096);
+	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 4096*4);
 	if (rank_ == 0) {
 		if (compilationErrors[0] != '\0') {
 			out << compilationErrors << '\n' << Log::flush;
