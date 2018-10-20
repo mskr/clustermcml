@@ -23,8 +23,6 @@
 
 #include "CUDAMCML.h"
 
-#define EXPLICIT_BOUNDARIES
-
 int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
 {
 
@@ -300,7 +298,7 @@ int ischar(char a)
 	else return 0;
 }
 
-int read_simulation_data(char* filename, SimulationStruct** simulations, int ignoreAdetection)
+int read_simulation_data(char* filename, SimulationStruct** simulations, int ignoreAdetection, int explicitBoundaries)
 {
 	int i=0;
 	int ii=0;
@@ -410,10 +408,13 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 		dtot=0;
 		for(ii=1;ii<=n_layers;ii++)
 		{
-			#ifdef EXPLICIT_BOUNDARIES
 			// Read boundary data
-			if(!readfloats(BOUNDARY_SAMPLES, (*simulations)[i].boundaries[ii-1].heightfield, pFile)){perror ("Error reading boundary data");return 0;}
-			#endif
+			if (explicitBoundaries) {
+				for (int heightfieldIndex = 0; heightfieldIndex < BOUNDARY_SAMPLES; heightfieldIndex++) {
+					int success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].heightfield + heightfieldIndex);
+					if (!success) { perror("Error reading boundary data, probably mismatch in the number of heightfield samples"); return 0; }
+				}
+			}
 			// Read Layer data (5x float)
 			if(!readfloats(5, ftemp, pFile)){perror ("Error reading layer data");return 0;}
 			printf("n=%f, mua=%f, mus=%f, g=%f, d=%f\n",ftemp[0],ftemp[1],ftemp[2],ftemp[3],ftemp[4]);
@@ -429,10 +430,13 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 			//printf("z_min=%f, z_max=%f\n",(*simulations)[i].layers[ii].z_min,(*simulations)[i].layers[ii].z_max);
 		}//end ii<n_layers
 
-		#ifdef EXPLICIT_BOUNDARIES
 		// One more boundary
-		if(!readfloats(BOUNDARY_SAMPLES, (*simulations)[i].boundaries[n_layers].heightfield, pFile)){perror ("Error reading last boundary data");return 0;}
-		#endif
+		if (explicitBoundaries) {
+			for (int heightfieldIndex = 0; heightfieldIndex < BOUNDARY_SAMPLES; heightfieldIndex++) {
+				int success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].heightfield + heightfieldIndex);
+				if (!success) { perror("Error reading last boundary data, probably mismatch in the number of heightfield samples"); return 0; }
+			}
+		}
 
 		// Read lower refractive index (1xfloat)
 		if(!readfloats(1, ftemp, pFile)){perror ("Error reading lower refractive index");return 0;}

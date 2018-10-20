@@ -109,7 +109,7 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 	if (rank == 0) {
 		int ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL ? 1 : 0;
 		out << "--- "<<mcmlOptions<<" --->" << '\n';
-		simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA);
+		simCount = read_simulation_data(mcmlOptions, &simulations, ignoreA, 1);
 		out << "<--- "<<mcmlOptions<<" ---" << '\n';
 	}
 
