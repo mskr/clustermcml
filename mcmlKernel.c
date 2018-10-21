@@ -7,20 +7,21 @@
 #ifdef NO_GPU
 #include "randomlib.h" // rand_lcg, rand_xorshift
 #else
-#define const __constant
-#define uint32_t uint
+// Include implementation as this is quicker
+// than fiddling with linking in OpenCL compiler.
 #include "randomlib.c"
-#undef const
-#undef uint32_t
 #endif
+
 #include "classert.h" // DEBUG_BUFFER_ARG, classert
 
-#undef PI
-#define PI 3.14159265359f
+#include "clmem.h" // CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_ARRAY2D, CLMEM_ACCESS_AOS
 
 #include "Boundary.h"
 #include "Layer.h"
 #include "PhotonTracker.h"
+
+#undef PI
+#define PI 3.14159265359f
 
 // find ray-plane intersection point
 // if found return path length to intersection

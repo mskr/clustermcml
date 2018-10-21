@@ -1,3 +1,11 @@
+// Need redefines to make the C source use OpenCL C terminology.
+#if defined(__OPENCL_VERSION__)
+#define const __constant
+#define uint32_t uint
+#endif
+
+
+
 // Following Nathan Reed's article:
 // http://reedbeta.com/blog/quick-and-easy-gpu-random-numbers-in-d3d11/
 // PRNGs are designed to go deep, i.e. have good distributions when sequentially updating state
@@ -50,7 +58,7 @@ uint32_t wang_hash(uint32_t seed) {
 // https://www.shadertoy.com/view/4djSRW
 
 // Random from original mcml (works only on CPU)
-#ifdef CL2CPU
+#if !defined(__OPENCL_VERSION__)
 #define STANDARDTEST 1
   /* testing program using fixed rnd seed. */
 /***********************************************************
@@ -124,4 +132,13 @@ float RandomNum(void) {
   return( (float)ran3(&idum) );
 }
 #undef STANDARDTEST
-#endif // CL2CPU
+#endif // !defined(__OPENCL_VERSION__)
+
+
+
+
+
+#if defined(__OPENCL_VERSION__)
+#undef const
+#undef uint32_t
+#endif

@@ -7,16 +7,17 @@
 *   int a;
 * });
 */
-#if _MSC_VER && !__INTEL_COMPILER // MSVC
+#if defined(_MSC_VER) && !defined(__INTEL_COMPILER) // MSVC
 #define ALIGN_NONE(T) __pragma(pack(push, 1)) T __pragma(pack(pop))
 #define ALIGN_4BYTE(T) __pragma(pack(push, 4)) T __pragma(pack(pop))
 #define ALIGN_8BYTE(T) __pragma(pack(push, 8)) T __pragma(pack(pop))
-#elif __GNUC__ || __OPENCL_VERSION__ // GCC or OpenCL
+#elif defined(__GNUC__) || defined(__OPENCL_VERSION__) // GCC or OpenCL
 #define ALIGN_NONE(T) T __attribute__((aligned(1)))
 #define ALIGN_4BYTE(T) T __attribute__((aligned(4)))
 #define ALIGN_8BYTE(T) T __attribute__((aligned(8)))
 #endif
 
+#if !defined(__OPENCL_VERSION__)
 
 /**
 * Data Problem 2
@@ -46,6 +47,8 @@ int getCLMemSharedGLObjectCount();
 cl_mem getCLMemSharedGLObject(int i);
 
 void freeCLMem();
+
+#endif // __OPENCL_VERSION__
 
 
 /**
