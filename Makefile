@@ -122,6 +122,7 @@ cpumcml-main-windows.o: main.cpp clusterlib.h clmem.h
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/c /Fo"cpumcml-main-windows.o"
 
 cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
@@ -129,20 +130,21 @@ cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
+		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/c /Fo"cpumcml-runMCML-windows.o"
 
-cpumcml-kernel-windows.o: kernel.c.preprocessed.cpp
-	$(MSVC)/cl kernel.c.preprocessed.cpp /c /Zi /Fo"cpumcml-kernel-windows.o"
+cpumcml-kernel-windows.o: mcmlKernel.c.preprocessed.cpp
+	$(MSVC)/cl mcmlKernel.c.preprocessed.cpp /c /Zi /Fo"cpumcml-kernel-windows.o"
 
-kernel.c.preprocessed.cpp: kernel.c.cpp Boundary.h Layer.h PhotonTracker.h randomlib.h
-	$(MSVC)/cl kernel.c.cpp /c \
+mcmlKernel.c.preprocessed.cpp: mcmlKernel.c.cpp Boundary.h Layer.h PhotonTracker.h randomlib.h
+	$(MSVC)/cl mcmlKernel.c.cpp /c \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/P /Fi"kernel.c.preprocessed.cpp"
+		/P /Fi"mcmlKernel.c.preprocessed.cpp"
 
-kernel.c.cpp: kernel.c cl2cpp.exe
-	cl2cpp kernel.c
+mcmlKernel.c.cpp: mcmlKernel.c cl2cpp.exe
+	cl2cpp mcmlKernel.c
 
 cl2cpp.exe: cl2cpp.o
 	$(MSVC)/link cl2cpp.o \
