@@ -1,3 +1,18 @@
+/*********************************************************************************
+*
+* This file serves as centralized memory manager supporting CPU and GPU code.
+*
+* Centralized memory management is considered more safe than using pointers or
+* even smart pointers all over the code.
+*
+* In detail, it takes care of
+* 1) aligning struct data in a cross-platform way for easy interchange,
+* 2) allocating host and device memory in one go returning a unified handle,
+* 3) accessing memory with explicit declaration of memory layout (including easy 
+*    switch between Array of Structs (AOS) to Struct of Arrays (SOA)).
+*
+*********************************************************************************/
+
 /**
 * Data Problem 1
 * --------------
@@ -16,6 +31,7 @@
 #define ALIGN_4BYTE(T) T __attribute__((aligned(4)))
 #define ALIGN_8BYTE(T) T __attribute__((aligned(8)))
 #endif
+
 
 #if !defined(__OPENCL_VERSION__)
 

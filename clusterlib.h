@@ -1,5 +1,13 @@
-/**
+/*********************************************************************************
 *
+* This file contains functions related to MPI and OpenCL.
+* The goal is to simplify making a kernel ready to run on multiple computers
+* with possibly multiple GPUs.
+*
+*********************************************************************************/
+
+/**
+* Returns MPI process ID.
 */
 int getRank();
 

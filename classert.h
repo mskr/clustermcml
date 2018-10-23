@@ -1,6 +1,12 @@
-// An assert macro that writes error message to host buffer
-// and then performs a devide-by-zero to crash the kernel.
+/*********************************************************************************
+*
+* An assert macro for OpenCL kernels that writes error message to host buffer
+* and then performs a devide-by-zero to crash the kernel.
+*
+*********************************************************************************/
+
 //TODO dump the whole stack frame when assertions fail
+
 #ifdef DEBUG
 #define DEBUG_BUFFER debugBuffer
 #define DEBUG_BUFFER_ARG ,__global char* DEBUG_BUFFER

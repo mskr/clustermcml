@@ -1,3 +1,9 @@
+/*********************************************************************************
+*
+* This code performs the MCML photon transport and is executed on the GPU.
+*
+*********************************************************************************/
+
 // uncomment to use double if supported
 //#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
@@ -36,7 +42,7 @@ float intersectPlane(float3 pos, float3 dir, float3 point, float3 normal) {
 }
 
 /**
-* Read cartesian z value from radial heightfield at cartesian position xy.
+* Return cartesian z value from radial heightfield at cartesian position xy.
 * Also output normal that is oriented in -z direction.
 * Heights are interpreted in -z direction since +z goes down into material.
 */

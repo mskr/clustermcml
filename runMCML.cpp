@@ -1,3 +1,9 @@
+/*********************************************************************************
+*
+* This code sets up MCML and distributes work on processes and threads.
+*
+*********************************************************************************/
+
 #include <string.h> // strstr, memcpy
 #include <stdint.h> // uint32_t, uint64_t
 #include <stdlib.h> // malloc, free
