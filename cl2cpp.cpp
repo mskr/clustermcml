@@ -42,11 +42,8 @@ void prependDefinitions(std::string& src) {
 			*p += val;                                       \n\
 			return old;                                      \n\
 		}                                                    \n\
-		#define float3 glm::vec3                             \n\
-		#define dot glm::dot                                 \n\
-		#define sign glm::sign                               \n\
-		#define length glm::length                           \n\
-		#define min glm::min                                 \n\
+		using namespace glm;                                 \n\
+		#define float3 vec3                                  \n\
 		#define xy xy()                                      \n\
 	";
 	src = defs + "\n\n" + src;
