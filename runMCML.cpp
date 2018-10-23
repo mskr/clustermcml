@@ -230,37 +230,6 @@ static bool handleDebugOutput() {
 }
 
 
-void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank) {
-	// Read input file with process 0
-	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
-	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, true, &simCount);
-
-	broadcastInputData(rank);
-
-	// Allocate per-simulation arrays
-	layersPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
-	boundariesPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
-	reflectancePerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
-	transmissionPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
-	absorptionPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
-
-	// Photon states buffer
-	stateBuffer = CLMALLOC_OUTPUT(totalThreadCount, PhotonTracker);
-
-	// Allocate memory for each simulation
-	for (int simIndex = 0; simIndex < simCount; simIndex++) {
-		// ensure no bins can overflow
-		assert(simulations[simIndex].number_of_photons <= 0xFFFFFFFFu);
-		setupInputArrays(simulations[simIndex], simIndex);
-		allocOutputArrays(simulations[simIndex], simIndex);
-	}
-
-	// Debug buffer
-	int debugMode = strstr(kernelOptions, "-D DEBUG") != NULL ? 1 : 0;
-	if (debugMode) debugBuffer = CLMALLOC_OUTPUT(2048, char);
-}
-
-
 static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
 	// Do a blocking write to be safe (but maybe slow)
 	//TODO can we use async buffer transfers?
@@ -303,6 +272,7 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 	CL(SetKernelArg, kernel, argCount++, sizeof(float), &nBelow);
 	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &layers); // layers
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &sim.n_layers); // layerCount
+	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &boundaries); // boundaries
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount); // size_r
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount); // size_a
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &depthBinCount); // size_z
@@ -313,6 +283,17 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &A); // A
 	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &stateBuffer); // Photon states
 	if (debugBuffer) CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &debugBuffer);
+}
+
+
+static float computeFresnelReflectance(float n0, float n1) {
+	// Reflectance (specular):
+	// percentage of light leaving at surface without any interaction
+	// using Fesnel approximation by Schlick (no incident angle, no polarization)
+	// Q: why are the ^2 different than in Schlicks approximation?
+	float nDiff = n0 - n1;
+	float nSum = n0 + n1;
+	return (nDiff * nDiff) / (nSum * nSum);
 }
 
 
@@ -345,7 +326,9 @@ static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThre
 }
 
 
-static void runPhotonQuota(uint32_t processPhotonCount, uint32_t targetPhotonCount, int rank, cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, float R_specular, cl_event kernelEvent) {
+static void simulate(cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, 
+uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl_event kernelEvent) {
+
 	size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonTracker);
 
 	// Run kernel with optimal thread count as long as targeted number of photons allows it
@@ -354,7 +337,7 @@ static void runPhotonQuota(uint32_t processPhotonCount, uint32_t targetPhotonCou
 	// causing additional tracking overhead.
 	uint32_t finishedPhotonCount = 0;
 	if (rank == 0) out << '\n';
-	while (finishedPhotonCount < processPhotonCount) {
+	while (finishedPhotonCount < photonCount) {
 
 		// Upload photon states
 		//TODO since buffer updates are sparse, map could be faster than write in whole
@@ -375,7 +358,7 @@ static void runPhotonQuota(uint32_t processPhotonCount, uint32_t targetPhotonCou
 		CL(Finish, cmd);
 		if (debugBuffer) if (handleDebugOutput()) exit(1);
 
-		restartFinishedPhotons(processPhotonCount, totalThreadCount, &finishedPhotonCount, R_specular);
+		restartFinishedPhotons(photonCount, totalThreadCount, &finishedPhotonCount, R_specular);
 
 		uint32_t totalFinishedPhotonCount = 0;
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -387,7 +370,8 @@ static void runPhotonQuota(uint32_t processPhotonCount, uint32_t targetPhotonCou
 }
 
 
-static void runPhotonQuotaCPU(uint32_t processPhotonCount, uint32_t targetPhotonCount, int rank, SimulationStruct sim, Layer* layers, Boundary* boundaries, Weight* R, Weight* A, Weight* T, float R_specular) {
+static void simulateOnCPU(SimulationStruct sim, Layer* layers, Boundary* boundaries, Weight* R, Weight* A, Weight* T,
+uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 	float nAbove = sim.layers[0].n; // first and last layer have only n initialized...
 	float nBelow = sim.layers[sim.n_layers + 1].n; // ...and represent outer media
 	float radialBinCentimeters = sim.det.dr;
@@ -397,11 +381,11 @@ static void runPhotonQuotaCPU(uint32_t processPhotonCount, uint32_t targetPhoton
 	int depthBinCount = sim.det.nz;
 	uint32_t finishedPhotonCount = 0;
 	if (rank == 0) out << '\n';
-	while (finishedPhotonCount < processPhotonCount) {
+	while (finishedPhotonCount < photonCount) {
 		mcml(nAbove, nBelow, layers, sim.n_layers, // input
 			radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters, R, T, A, // output
 			(PhotonTracker*)getCLHostPointer(stateBuffer));// intermediate buffer
-		restartFinishedPhotons(processPhotonCount, 1, &finishedPhotonCount, R_specular);
+		restartFinishedPhotons(photonCount, 1, &finishedPhotonCount, R_specular);
 		uint32_t totalFinishedPhotonCount = 0;
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
 		// Print status
@@ -449,45 +433,74 @@ static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weigh
 }
 
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// You saw above the private implementation. Now follow the public interface routines.
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank) {
+	// Read input file with process 0
+	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
+	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, true, &simCount);
+
+	broadcastInputData(rank);
+
+	// Allocate per-simulation arrays
+	layersPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+	boundariesPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+	reflectancePerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+	transmissionPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+	absorptionPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+
+	// Photon states buffer
+	stateBuffer = CLMALLOC_OUTPUT(totalThreadCount, PhotonTracker);
+
+	// Allocate memory for each simulation
+	for (int simIndex = 0; simIndex < simCount; simIndex++) {
+		// ensure no bins can overflow
+		assert(simulations[simIndex].number_of_photons <= 0xFFFFFFFFu);
+		// layer and boundary mem
+		setupInputArrays(simulations[simIndex], simIndex);
+		// RAT buffer mem
+		allocOutputArrays(simulations[simIndex], simIndex);
+	}
+
+	// Debug buffer
+	int debugMode = strstr(kernelOptions, "-D DEBUG") != NULL ? 1 : 0;
+	if (debugMode) debugBuffer = CLMALLOC_OUTPUT(2048, char);
+}
+
+
 void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
 		uploadInputArrays(cmdQueue, simulations[simIndex], layersPerSimulation[simIndex], boundariesPerSimulation[simIndex]);
-
-		// first and last layer have only n initialized and represent outer media
-		float nAbove = simulations[simIndex].layers[0].n;
-		float nBelow = simulations[simIndex].layers[simulations[simIndex].n_layers + 1].n;
-
-		// Reflectance (specular):
-		// percentage of light leaving at surface without any interaction
-		// using Fesnel approximation by Schlick (no incident angle, no polarization)
-		// Q: why are the ^2 different than in Schlicks approximation?
-		float nDiff = nAbove - CLMEM_ACCESS_AOS(layersPerSimulation[simIndex], Layer, 0, n);
-		float nSum = nAbove + CLMEM_ACCESS_AOS(layersPerSimulation[simIndex], Layer, 0, n);
-		float R_specular = (nDiff * nDiff) / (nSum * nSum);
 
 		initAndUploadOutputArrays(cmdQueue, simulations[simIndex], reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
 
 		setKernelArguments(kernel, simulations[simIndex], layersPerSimulation[simIndex], boundariesPerSimulation[simIndex],
 			reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
 
-		cl_event kernelEvent;
+		// Compute percentage of light that photons lose before entering the first layer
+		float R_specular = computeFresnelReflectance(simulations[simIndex].layers[0].n, simulations[simIndex].layers[1].n);
 
-		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
+		initPhotonStates(totalThreadCount, R_specular);
 
 		// Distribute photons on processes
+		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
 		uint32_t processPhotonCount = targetPhotonCount / processCount;
 		if (rank == 0) { // rank 0 takes the remainder on top
 			processPhotonCount += (targetPhotonCount % processCount);
 		}
-		
-		initPhotonStates(totalThreadCount, R_specular);
-
-		#ifdef NO_GPU
-		runPhotonQuotaCPU(processPhotonCount, targetPhotonCount, rank, simulations[simIndex], getCLHostPointer(layersPerSimulation[simIndex]), getCLHostPointer(boundariesPerSimulation[simIndex]),
-			getCLHostPointer(reflectancePerSimulation[simIndex]), getCLHostPointer(absorptionPerSimulation[simIndex]), getCLHostPointer(transmissionPerSimulation[simIndex]), R_specular);
+		cl_event kernelEvent;
+		#ifndef NO_GPU
+		simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular, kernelEvent);
 		#else
-		runPhotonQuota(processPhotonCount, targetPhotonCount, rank, cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, kernelEvent);
+		simulateOnCPU(simulations[simIndex], getCLHostPointer(layersPerSimulation[simIndex]), getCLHostPointer(boundariesPerSimulation[simIndex]),
+			getCLHostPointer(reflectancePerSimulation[simIndex]), getCLHostPointer(absorptionPerSimulation[simIndex]), getCLHostPointer(transmissionPerSimulation[simIndex]),
+			processPhotonCount, targetPhotonCount, rank, R_specular);
 		#endif
 
 		downloadOutputArrays(simulations[simIndex], cmdQueue, reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);

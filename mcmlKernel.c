@@ -23,22 +23,89 @@
 #undef PI
 #define PI 3.14159265359f
 
-// find ray-plane intersection point
-// if found return path length to intersection
-// otherwise return negative value
-float intersect(float3 pos, float3 dir, struct Boundary bound) {
-	float3 normal = (float3)(bound.nx, bound.ny, bound.nz);
-	float a = dot(((float3)(0.0f, 0.0f, bound.z) - pos), normal);
-	if (a > -1e-6f) return -1.0f; // behind plane
+/**
+* return path length to ray-plane intersection
+*/
+float intersectPlane(float3 pos, float3 dir, float3 point, float3 normal) {
+	float a = dot((point - pos), normal);
+	if (a > -1e-6f) return INFINITY; // behind plane
 	float b = dot(dir, normal);
-	if (b > -1e-6f) return -1.0f; // facing away
+	if (b > -1e-6f) return INFINITY; // facing away
 	float pathLenToIntersection = a / b;
 	return pathLenToIntersection;
 }
 
-// return cos of angle, which is
-// more probable to be small the greater g is and
-// evenly distributed if g == 0
+/**
+* Read cartesian z value from radial heightfield at cartesian position xy.
+* Also output normal that is oriented in -z direction.
+* Heights are interpreted in -z direction since +z goes down into material.
+*/
+float readRadialHeightfield(float2 pos, float3 center, float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
+	float res = (float)BOUNDARY_WIDTH / (float)BOUNDARY_SAMPLES;
+	// Calc p in heightmap coordinate system
+	float2 p = pos.xy - center.xy;
+	// Calc radial offset
+	float r = length(p);
+	// Calc array offset using sampling resolution
+	float x = r / res;
+	int i = (int)x;
+	// Get 2 nearest samples
+	float h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
+	float h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
+	// Calc distances from the 2 samples
+	float f = fract(x); float rf = 1.0f-f;
+	// Calc gradient from p1 to p0,
+	// so that p0 lies on the nearest sample towards center
+	// and p1 lies on the next outer sample
+	float2 p0 = (float2)(0, 0);
+	float2 p1 = (float2)(res, 0);
+	if (x > 0) {
+		p0 = p*(1.0f-f/x);
+		p1 = p*(1.0f+rf/x);
+	}
+	float3 gradient = normalize((float3)(p0, -h0) - (float3)(p1, -h1));
+	// Calc clockwise tangent
+	float3 tangent = normalize((float3)(p.y, -p.x, 0));
+	// Calc normal from gradient and tangent
+	// note: cross(a,b) forms right-handed system, where a==thumb
+	// then translate normal back into cartesian coordinates
+	*outNormal = normalize(cross(tangent, gradient) + center);
+	// Linear interpolation
+	return center.z - mix(h0, h1, f);
+}
+
+/**
+* find intersection of line with radial heightfield
+*/
+float intersectHeightfield(float3 pos, float3 dir, float len, float3 center, float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
+	// Coarse raymarching search
+	float D = 0.00001f;
+	float3 p = pos;
+	float lastDz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
+	float d = D;
+	float3 ds = D * dir;
+	while (d < len) {
+		p += ds;
+		float dz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
+		if (sign(dz) != sign(lastDz)) {
+			// if ray came from +z, i.e. (dz < 0), normal will point down
+			if (dz < 0) *outNormal *= -1.0f;
+			// Path to intersection
+			return d;
+		}
+		lastDz = dz;
+		d += D;
+	}
+	return -1.f;
+}
+
+//TODO try exact heightfield intersection using intermediate planes, like Maisch pointed out
+
+/**
+* return cos of angle, which is
+* more probable to be small the greater g is and
+* evenly distributed if g == 0
+*/
 float sampleHenyeyGreenstein(uint* rng_state, float g) {
 	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	if (g != 0.0f) {
@@ -48,7 +115,9 @@ float sampleHenyeyGreenstein(uint* rng_state, float g) {
 	}
 }
 
-// atomically add 32 bit unsigned integer to 64 bit unsigned integer
+/**
+* atomically add 32 bit unsigned integer to 64 bit unsigned integer
+*/
 void add(volatile __global ulong* dst64, uint src32) {
 	// First try to add to least significant half
 	// If there was an overflow, add 1 to most significant half
@@ -57,9 +126,11 @@ void add(volatile __global ulong* dst64, uint src32) {
 	}
 }
 
-// return new photon direction
-// theta: angle to original direction
-// psi: position on circle around original direction
+/**
+* return new photon direction
+* theta: angle to original direction
+* psi: position on circle around original direction
+*/
 float3 spin(float3 dir, float theta, float psi) {
 	float3 tmp = (float3)(0,0,0);
 	if (fabs(dir.z) > 0.99999) {
@@ -78,7 +149,9 @@ float3 spin(float3 dir, float theta, float psi) {
 	return tmp;
 }
 
-// return if photon is killed and update its weight (0 == dead)
+/**
+* return if photon is killed and update its weight (0 == dead)
+*/
 bool roulette(uint* rng_state, float* photonWeight) {
 	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	if (rand <= 0.1f) {
@@ -90,17 +163,27 @@ bool roulette(uint* rng_state, float* photonWeight) {
 	return false;
 }
 
-// return if there is an intersection in the photon step and write according parameters
-bool findIntersection(float3 pos, float3 dir, float s, __global struct Layer* layers, int currentLayer,
-__global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenToIntersection, bool* topOrBottom) {
-	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].top)) >= 0 && *pathLenToIntersection <= s) {
-		*intersectedBoundary = &layers[currentLayer].top;
+/**
+* return if there is an intersection in the photon step and write according parameters
+*/
+bool detectBoundaryCollision(float3 pos, float3 dir, float s, int currentLayer, __global struct Boundary* boundaries, // in
+__global struct Boundary** intersectedBoundary, float3 normal, int* otherLayer, float* pathLenToIntersection, bool* topOrBottom) { // out
+	//TODO return -1, 0 or 1 to indicate layer change and get rid of otherLayer and topOrBottom args
+	// Find intersection with top boundary
+	float3 n = (float3)(0);
+	*pathLenToIntersection = intersectHeightfield(pos, dir, s, (float3)(0,0,boundaries[currentLayer]), boundaries[currentLayer].heightfield, &n);
+	if (*pathLenToIntersection >= 0) {
+		*intersectedBoundary = &boundaries[currentLayer];
+		*normal = n;
 		*otherLayer = currentLayer - 1;
 		*topOrBottom = true;
 		return true;
 	}
-	if ((*pathLenToIntersection = intersect(pos, dir, layers[currentLayer].bottom)) >= 0 && *pathLenToIntersection <= s) {
-		*intersectedBoundary = &layers[currentLayer].bottom;
+	// Find intersection with bottom boundary
+	*pathLenToIntersection = intersectHeightfield(pos, dir, s,(float3)(0,0,boundaries[currentLayer+1]), boundaries[currentLayer+1].heightfield &n);
+	if (*pathLenToIntersection >= 0) {
+		*intersectedBoundary = &boundaries[currentLayer+1];
+		*normal = n;
 		*otherLayer = currentLayer + 1;
 		*topOrBottom = false;
 		return true;
@@ -108,8 +191,10 @@ __global struct Boundary** intersectedBoundary, int* otherLayer, float* pathLenT
 	return false;
 }
 
-// update current layer and return if photon left the simulation domain
-// the corresponding detection array is also updated
+/**
+* update current layer and return if photon left the simulation domain
+* the corresponding detection array is also updated
+*/
 bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r,
@@ -152,14 +237,18 @@ volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
 	// and uses local variable to add up the weights when same bin is accessed often
 }
 
-// update photon direction
+/**
+* update photon direction
+*/
 void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
 	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
 	// mirror dir vector against boundary plane
 	*dir = *dir - 2.0f * normal * dot(*dir, normal);
 }
 
-// return if photon is reflected at boundary
+/**
+* return if photon is reflected at boundary
+*/
 bool decideReflectOrTransmit(uint* rng_state, float3 dir,
 __global struct Layer* layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
 __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
@@ -216,7 +305,7 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 /**
 * Monte carlo photon transport in multilayered media.
 * 
-* Input is an array of layers as well as
+* Input are arrays of layers and boundaries as well as
 * the diffractive indices of the media above and below.
 * 
 * Output is consisting of
@@ -234,21 +323,32 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 * to terminate the process. Therefore a fixed
 * number of photon bounces is done per round.
 * To keep track of photon states across rounds,
-* an array of tracker structs which size equals
+* a tracker array is maintained which size equals
 * the number of photons that the GPU can simulate
-* in parallel.
+* in parallel, i.e. the thread count.
 */
-__kernel void mcml(float nAbove, float nBelow, __global struct Layer* layers, int layerCount,
-int size_r, int size_a, int size_z, float delta_r,  float delta_z,
-volatile __global ulong* R_ra, volatile __global ulong* T_ra, volatile __global ulong* A_rz,
-__global struct PhotonTracker* photonStates
-DEBUG_BUFFER_ARG)
+__kernel void mcml(
+float nAbove, // refractive index above
+float nBelow, // refractive index below
+__global struct Layer* layers, // layer array
+int layerCount, // size of layer array
+__global struct Boundary* boundaries, // boundary array
+int size_r, // number of radial bins
+int size_a, // number of angular bins
+int size_z, // number of depth bins
+float delta_r, // spacing between radial bins
+float delta_z, // spacing between depth bins
+volatile __global ulong* R_ra, // reflectance array
+volatile __global ulong* T_ra, // transmittance array
+volatile __global ulong* A_rz, // absorption array
+__global struct PhotonTracker* photonStates // photon tracking buffer
+DEBUG_BUFFER_ARG) // optional debug buffer
 {
 	// Get current photon state
 	__global struct PhotonTracker* state = &photonStates[get_global_id(0)];
 	if (state->isDead) {
 		// This photon was not restarted because enough are in the pipeline
-		return; // nothing to do
+		return; // I have no work :(
 	}
 	uint rng_state = state->rngState;
 	if (rng_state == 0) rng_state = wang_hash(get_global_id(0));
@@ -273,8 +373,8 @@ DEBUG_BUFFER_ARG)
 		// break;
 
 		// Test intersection with top and bottom boundaries of current layer
-		__global struct Boundary* intersectedBoundary = 0; int otherLayer = 0; float pathLenToIntersection = 0; bool topOrBottom = 0;
-		if (findIntersection(pos, dir, s, layers, currentLayer, &intersectedBoundary, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
+		__global struct Boundary* intersectedBoundary = 0; float3 normal = (float3)(0); int otherLayer = 0; float pathLenToIntersection = 0; bool topOrBottom = 0;
+		if (detectBoundaryCollision(pos, dir, s, currentLayer, boundaries, &intersectedBoundary, &normal, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
 
 			// Hop (unfinished part of s can be ignored)
 			pos += dir * pathLenToIntersection;
