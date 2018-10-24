@@ -26,6 +26,10 @@
 #include "Layer.h"
 #include "PhotonTracker.h"
 
+#define BoundaryArray __global struct Boundary*
+#define LayerArray __global struct Layer*
+#define WeightArray volatile __global ulong*
+
 #undef PI
 #define PI 3.14159265359f
 
@@ -46,7 +50,7 @@ float intersectPlane(float3 pos, float3 dir, float3 point, float3 normal) {
 * Also output normal that is oriented in -z direction.
 * Heights are interpreted in -z direction since +z goes down into material.
 */
-float readRadialHeightfield(float2 pos, float3 center, float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
+float readRadialHeightfield(float2 pos, float3 center, __global float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
 	float res = (float)BOUNDARY_WIDTH / (float)BOUNDARY_SAMPLES;
 	// Calc p in heightmap coordinate system
 	float2 p = pos.xy - center.xy;
@@ -59,7 +63,7 @@ float readRadialHeightfield(float2 pos, float3 center, float heightfield[BOUNDAR
 	float h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
 	float h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
 	// Calc distances from the 2 samples
-	float f = fract(x); float rf = 1.0f-f;
+	float fl; float f = fract(x, &fl); float rf = 1.0f-f;
 	// Calc gradient from p1 to p0,
 	// so that p0 lies on the nearest sample towards center
 	// and p1 lies on the next outer sample
@@ -83,7 +87,7 @@ float readRadialHeightfield(float2 pos, float3 center, float heightfield[BOUNDAR
 /**
 * find intersection of line with radial heightfield
 */
-float intersectHeightfield(float3 pos, float3 dir, float len, float3 center, float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
+float intersectHeightfield(float3 pos, float3 dir, float len, float3 center, __global float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
 	// Coarse raymarching search
 	float D = 0.00001f;
 	float3 p = pos;
@@ -170,31 +174,22 @@ bool roulette(uint* rng_state, float* photonWeight) {
 }
 
 /**
-* return if there is an intersection in the photon step and write according parameters
+* Return index difference from current to adjacent layer in case
+* there is an intersection with the boundary in the photon step.
+* Also outputs collision normal and path length to intersection.
 */
-bool detectBoundaryCollision(float3 pos, float3 dir, float s, int currentLayer, __global struct Boundary* boundaries, // in
-__global struct Boundary** intersectedBoundary, float3 normal, int* otherLayer, float* pathLenToIntersection, bool* topOrBottom) { // out
-	//TODO return -1, 0 or 1 to indicate layer change and get rid of otherLayer and topOrBottom args
+int detectBoundaryCollision(int currentLayer, float3 pos, float3 dir, float s, BoundaryArray boundaries, float3* normal, float* pathLenToIntersection) {
 	// Find intersection with top boundary
-	float3 n = (float3)(0);
-	*pathLenToIntersection = intersectHeightfield(pos, dir, s, (float3)(0,0,boundaries[currentLayer]), boundaries[currentLayer].heightfield, &n);
+	*pathLenToIntersection = intersectHeightfield(pos, dir, s, (float3)(0,0,boundaries[currentLayer].z), boundaries[currentLayer].heightfield, normal);
 	if (*pathLenToIntersection >= 0) {
-		*intersectedBoundary = &boundaries[currentLayer];
-		*normal = n;
-		*otherLayer = currentLayer - 1;
-		*topOrBottom = true;
-		return true;
+		return -1;
 	}
 	// Find intersection with bottom boundary
-	*pathLenToIntersection = intersectHeightfield(pos, dir, s,(float3)(0,0,boundaries[currentLayer+1]), boundaries[currentLayer+1].heightfield &n);
+	*pathLenToIntersection = intersectHeightfield(pos, dir, s,(float3)(0,0,boundaries[currentLayer+1].z), boundaries[currentLayer+1].heightfield, normal);
 	if (*pathLenToIntersection >= 0) {
-		*intersectedBoundary = &boundaries[currentLayer+1];
-		*normal = n;
-		*otherLayer = currentLayer + 1;
-		*topOrBottom = false;
-		return true;
+		return 1;
 	}
-	return false;
+	return 0;
 }
 
 /**
@@ -204,7 +199,7 @@ __global struct Boundary** intersectedBoundary, float3 normal, int* otherLayer, 
 bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r,
-volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
+WeightArray R_ra, WeightArray T_ra) {
 	*currentLayer = otherLayer;
 	if (*currentLayer < 0) {
 		// photon escaped at top => record diffuse reflectance
@@ -246,8 +241,7 @@ volatile __global ulong* R_ra, volatile __global ulong* T_ra) {
 /**
 * update photon direction
 */
-void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
-	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
+void reflect(float3* dir, float3 normal) {
 	// mirror dir vector against boundary plane
 	*dir = *dir - 2.0f * normal * dot(*dir, normal);
 }
@@ -256,10 +250,9 @@ void reflect(float3* dir, __global struct Boundary* intersectedBoundary) {
 * return if photon is reflected at boundary
 */
 bool decideReflectOrTransmit(uint* rng_state, float3 dir,
-__global struct Layer* layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
-__global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
+LayerArray layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
+float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
-	float3 normal = (float3)(intersectedBoundary->nx, intersectedBoundary->ny, intersectedBoundary->nz);
 	float cosIncident = dot(normal, -dir);
 	float fresnelR, transmitAngle;
 	// straight transmission if refractive index is const
@@ -282,7 +275,6 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 	} else if (cosIncident <= cos_crit1) {
 		fresnelR = 1.0f;
 	}
-	//TODO We still transmit too much photons! Find a definite state where mcml does not transmit but we do (just output the index of the photon).
 	else if (cosIncident == 1.0f) {
 		fresnelR = (layers[currentLayer].n - otherN) / (layers[currentLayer].n + otherN);
 		fresnelR *= fresnelR;
@@ -336,17 +328,17 @@ __global struct Boundary* intersectedBoundary, bool topOrBottom, float* outTrans
 __kernel void mcml(
 float nAbove, // refractive index above
 float nBelow, // refractive index below
-__global struct Layer* layers, // layer array
+LayerArray layers, // layer array
 int layerCount, // size of layer array
-__global struct Boundary* boundaries, // boundary array
+BoundaryArray boundaries, // boundary array
 int size_r, // number of radial bins
 int size_a, // number of angular bins
 int size_z, // number of depth bins
 float delta_r, // spacing between radial bins
 float delta_z, // spacing between depth bins
-volatile __global ulong* R_ra, // reflectance array
-volatile __global ulong* T_ra, // transmittance array
-volatile __global ulong* A_rz, // absorption array
+WeightArray R_ra, // reflectance array
+WeightArray T_ra, // transmittance array
+WeightArray A_rz, // absorption array
 __global struct PhotonTracker* photonStates // photon tracking buffer
 DEBUG_BUFFER_ARG) // optional debug buffer
 {
@@ -379,8 +371,9 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		// break;
 
 		// Test intersection with top and bottom boundaries of current layer
-		__global struct Boundary* intersectedBoundary = 0; float3 normal = (float3)(0); int otherLayer = 0; float pathLenToIntersection = 0; bool topOrBottom = 0;
-		if (detectBoundaryCollision(pos, dir, s, currentLayer, boundaries, &intersectedBoundary, &normal, &otherLayer, &pathLenToIntersection, &topOrBottom)) {
+		float3 normal = (float3)(0); float pathLenToIntersection = 0;
+		int layerChange = detectBoundaryCollision(currentLayer, pos, dir, s, boundaries, &normal, &pathLenToIntersection);
+		if (layerChange != 0) {
 
 			// Hop (unfinished part of s can be ignored)
 			pos += dir * pathLenToIntersection;
@@ -389,11 +382,10 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 
 			// Transmit or reflect at boundary
 			float transmitAngle = 0; float cosIncident = 0; float n1 = 0; float n2 = 0;
-			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, otherLayer, layerCount, nAbove, nBelow, 
-			intersectedBoundary, topOrBottom, &transmitAngle, &cosIncident, &n1, &n2)) {
-				reflect(&dir, intersectedBoundary);
+			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, currentLayer+layerChange, layerCount, nAbove, nBelow, normal, layerChange<0, &transmitAngle, &cosIncident, &n1, &n2)) {
+				reflect(&dir, normal);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, otherLayer, layerCount,
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, currentLayer+layerChange, layerCount,
 				size_r, size_a, delta_r, R_ra, T_ra)) {
 					break;
 				}
