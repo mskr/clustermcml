@@ -205,11 +205,11 @@ WeightArray R_ra, WeightArray T_ra) {
 		// photon escaped at top => record diffuse reflectance
 		// calc indices r,a
 		float r = length(pos.xy);
-		int i = (int)floor(r / delta_r);
-		i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+		int r_i = (int)floor(r / delta_r);
+		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
-		int j = (int)floor(a / (90.0f / size_a));
-		add(&R_ra[i * size_a + j], (uint)(*photonWeight * 0xFFFFFFFF));
+		int a_i = (int)floor(a / (90.0f / size_a));
+		add(&CLMEM_ACCESS_ARRAY2D(R_ra, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		// photon is terminated
 		*photonWeight = 0;
 		return true;
@@ -217,11 +217,11 @@ WeightArray R_ra, WeightArray T_ra) {
 		// photon escaped at bottom => record transmittance
 		// calc indices r,a
 		float r = length(pos.xy);
-		int i = (int)floor(r / delta_r);
-		i = min(i, size_r - 1); // all overflowing values are accumulated at the edges
+		int r_i = (int)floor(r / delta_r);
+		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
-		int j = (int)floor(a / (90.0f / size_a));
-		add(&T_ra[i * size_a + j], (uint)(*photonWeight * 0xFFFFFFFF));
+		int a_i = (int)floor(a / (90.0f / size_a));
+		add(&CLMEM_ACCESS_ARRAY2D(T_ra, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		*photonWeight = 0;
 		return true;
 	}
@@ -403,12 +403,12 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 			#ifndef IGNORE_A
 			{
 				float z = pos.z;
-				int i = (int)floor(z / delta_z);
-				i = min(i, size_z - 1);
+				int z_i = (int)floor(z / delta_z);
+				z_i = min(z_i, size_z - 1);
 				float r = length(pos.xy);
-				int j = (int)floor(r / delta_r);
-				j = min(j, size_r - 1); // all overflowing values are accumulated at the edges
-				add(&A_rz[i * size_r + j], (uint)(dW * 0xFFFFFFFF));
+				int r_i = (int)floor(r / delta_r);
+				r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
+				add(&CLMEM_ACCESS_ARRAY2D(A_rz, size_r, z_i, r_i), (uint)(dW * 0xFFFFFFFF));
 			}
 			#endif
 

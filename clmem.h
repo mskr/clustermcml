@@ -77,13 +77,13 @@ void freeCLMem();
 */
 
 #if __OPENCL_VERSION__
-#define CLMEM_ACCESS_ARRAY(pointer, i) pointer[i]
-#define CLMEM_ACCESS_ARRAY2D(pointer, size_j, i, j) pointer[i * size_j + j]
-#define CLMEM_ACCESS_AOS(pointer, i, member) pointer[i].member
-#define CLMEM_ACCESS_SOA(pointer, i, member) pointer->member[i]
+#define CLMEM_ACCESS_ARRAY(pointer, i) (pointer[i])
+#define CLMEM_ACCESS_ARRAY2D(pointer, size_j, i, j) (pointer[i * size_j + j])
+#define CLMEM_ACCESS_AOS(pointer, i, member) (pointer[i].member)
+#define CLMEM_ACCESS_SOA(pointer, i, member) (pointer->member[i])
 #else
-#define CLMEM_ACCESS_ARRAY(handle, T, i) ((T*)getCLHostPointer(handle))[i]
-#define CLMEM_ACCESS_ARRAY2D(handle, T, size_j, i, j) ((T*)getCLHostPointer(handle))[i * size_j + j]
-#define CLMEM_ACCESS_AOS(handle, T, i, member) ((T*)getCLHostPointer(handle))[i].member
-#define CLMEM_ACCESS_SOA(handle, T, i, member) ((T*)getCLHostPointer(handle))->member[i]
+#define CLMEM_ACCESS_ARRAY(handle, T, i) (((T*)getCLHostPointer(handle))[i])
+#define CLMEM_ACCESS_ARRAY2D(handle, T, size_j, i, j) (((T*)getCLHostPointer(handle))[i * size_j + j])
+#define CLMEM_ACCESS_AOS(handle, T, i, member) (((T*)getCLHostPointer(handle))[i].member)
+#define CLMEM_ACCESS_SOA(handle, T, i, member) (((T*)getCLHostPointer(handle))->member[i])
 #endif
