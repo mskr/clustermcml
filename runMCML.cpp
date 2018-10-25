@@ -2,6 +2,8 @@
 *
 * This code sets up MCML and distributes work on processes and threads.
 *
+* It runs one or more simulations from 1 mci file and produces mco files for each.
+*
 *********************************************************************************/
 
 #include <string.h> // strstr, memcpy
@@ -9,31 +11,24 @@
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
-#define DEBUG
-#include "clcheck.h" // CL macro
-#include "mpicheck.h" // MPI macro
-
-#include "Log.h" // out stream
-#include "randomlib.h" // wang_hash, rand_xorshift
-
-#include "clmem.h" // CLMALLOC_INPUT, CLMALLOC_OUTPUT, getCLHostPointer, CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_AOS
+#include "clmem.h" // CLMALLOC_INPUT, CLMALLOC_OUTPUT, CLMEM, CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_AOS
 
 // Data structures
 #include "Boundary.h"
 #include "Layer.h"
 #include "PhotonTracker.h"
 
+#include "randomlib.h" // wang_hash, rand_xorshift
+#include "Log.h" // out stream
+#define DEBUG
+#include "clcheck.h" // CL macro
+#include "mpicheck.h" // MPI macro
+
 #include "CUDAMCML.h"
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
 typedef uint64_t Weight;
 #define MPI_WEIGHT_T MPI_UINT64_T
-
-// Declaration of kernel function to be able to use it from CPU code
-void mcml(float nAbove, float nBelow, struct Layer* layers, int layerCount,
-int size_r, int size_a, int size_z, float delta_r,  float delta_z,
-volatile Weight* R_ra, volatile Weight* T_ra, volatile Weight* A_rz,
-struct PhotonTracker* photonStates);
 
 
 static int simCount = 0;
@@ -175,19 +170,19 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 	// Data structures as read from file are slightly restructured to be ready for GPU consumption
 	for (int j = 1; j <= layerCount; j++) {
 		// Boundary
-		CLMEM_ACCESS_AOS(boundariesPerSimulation[simIndex], Boundary, j-1, z) = sim.layers[j].z_min;
-		memcpy(CLMEM_ACCESS_AOS(boundariesPerSimulation[simIndex], Boundary, j-1, heightfield),
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, z) = sim.layers[j].z_min;
+		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield),
 			sim.boundaries[j-1].heightfield, BOUNDARY_SAMPLES);
 		// Layer
-		CLMEM_ACCESS_AOS(layersPerSimulation[simIndex], Layer, j-1, absorbCoeff) = sim.layers[j].mua;
-		CLMEM_ACCESS_AOS(layersPerSimulation[simIndex], Layer, j-1, scatterCoeff) = 
+		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, absorbCoeff) = sim.layers[j].mua;
+		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, scatterCoeff) = 
 			1.0f / sim.layers[j].mutr - sim.layers[j].mua;
-		CLMEM_ACCESS_AOS(layersPerSimulation[simIndex], Layer, j-1, g) = sim.layers[j].g;
-		CLMEM_ACCESS_AOS(layersPerSimulation[simIndex], Layer, j-1, n) = sim.layers[j].n;
+		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, g) = sim.layers[j].g;
+		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, n) = sim.layers[j].n;
 	}
 	// One more boundary
-	CLMEM_ACCESS_AOS(boundariesPerSimulation[simIndex], Boundary, layerCount, z) = sim.layers[layerCount-1].z_max;
-	memcpy(CLMEM_ACCESS_AOS(boundariesPerSimulation[simIndex], Boundary, layerCount, heightfield), 
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, z) = sim.layers[layerCount-1].z_max;
+	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield), 
 		sim.boundaries[layerCount].heightfield, BOUNDARY_SAMPLES);
 }
 
@@ -225,7 +220,7 @@ static bool handleDebugOutput() {
 	int n = 2048/4;
 	float sum = 0.0f;
 	for (int k = 0; k < n; k++) { // print as floats
-		float f = ((float*)getCLHostPointer(debugBuffer))[k];
+		float f = ((float*)CLMEM(debugBuffer))[k];
 		sum += f;
 		out << f << " ";
 	}
@@ -239,8 +234,8 @@ static bool handleDebugOutput() {
 static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
 	// Do a blocking write to be safe (but maybe slow)
 	//TODO can we use async buffer transfers?
-	CL(EnqueueWriteBuffer, cmd, layers, CL_TRUE, 0, sim.n_layers*sizeof(Layer), getCLHostPointer(layers), 0, NULL, NULL);
-	CL(EnqueueWriteBuffer, cmd, boundaries, CL_TRUE, 0, sim.n_layers*sizeof(Layer), getCLHostPointer(boundaries), 0, NULL, NULL);
+	CL(EnqueueWriteBuffer, cmd, layers, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(layers), 0, NULL, NULL);
+	CL(EnqueueWriteBuffer, cmd, boundaries, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(boundaries), 0, NULL, NULL);
 }
 
 
@@ -254,14 +249,54 @@ static void initAndUploadOutputArrays(cl_command_queue cmd, SimulationStruct sim
 
 	// Init with zeros
 	for (int i = 0; i < radialBinCount * angularBinCount; i++) {
-		CLMEM_ACCESS_ARRAY(R, Weight, i) = 0;
-		CLMEM_ACCESS_ARRAY(T, Weight, i) = 0;
+		CLMEM_ACCESS_ARRAY(CLMEM(R), Weight, i) = 0;
+		CLMEM_ACCESS_ARRAY(CLMEM(T), Weight, i) = 0;
 	}
 	for (int i = 0; i < radialBinCount * depthBinCount; i++)
-		CLMEM_ACCESS_ARRAY(A, Weight, i) = 0;
-	CL(EnqueueWriteBuffer, cmd, R, CL_TRUE, 0, reflectanceBufferSize, getCLHostPointer(R), 0, NULL, NULL);
-	CL(EnqueueWriteBuffer, cmd, T, CL_TRUE, 0, transmissionBufferSize, getCLHostPointer(T), 0, NULL, NULL);
-	CL(EnqueueWriteBuffer, cmd, A, CL_TRUE, 0, absorptionBufferSize, getCLHostPointer(A), 0, NULL, NULL);
+		CLMEM_ACCESS_ARRAY(CLMEM(A), Weight, i) = 0;
+	CL(EnqueueWriteBuffer, cmd, R, CL_TRUE, 0, reflectanceBufferSize, CLMEM(R), 0, NULL, NULL);
+	CL(EnqueueWriteBuffer, cmd, T, CL_TRUE, 0, transmissionBufferSize, CLMEM(T), 0, NULL, NULL);
+	CL(EnqueueWriteBuffer, cmd, A, CL_TRUE, 0, absorptionBufferSize, CLMEM(A), 0, NULL, NULL);
+}
+
+
+static float computeFresnelReflectance(float n0, float n1) {
+	// Reflectance (specular):
+	// percentage of light leaving at surface without any interaction
+	// using Fesnel approximation by Schlick (no incident angle, no polarization)
+	// Q: why are the ^2 different than in Schlicks approximation?
+	float nDiff = n0 - n1;
+	float nSum = n0 + n1;
+	return (nDiff * nDiff) / (nSum * nSum);
+}
+
+
+static void initPhotonStates(size_t totalThreadCount, float R_specular) {
+	for (int i = 0; i < totalThreadCount; i++) {
+		PhotonTracker newState = createNewPhotonTracker();
+		newState.weight -= R_specular;
+		CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+	}
+}
+
+
+static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThreadCount, uint32_t* outFinishCount, float R_specular) {
+	// Check for finished photons
+	for (int i = 0; i < totalThreadCount; i++) {
+		if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0
+		&& !CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead)) {
+			(*outFinishCount)++;
+			// Launch new only if next round cannot overachieve
+			if ((*outFinishCount) + totalThreadCount <= processPhotonCount) {
+				PhotonTracker newState = createNewPhotonTracker();
+				newState.weight -= R_specular;
+				newState.rngState = wang_hash((*outFinishCount) + totalThreadCount);
+				CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+			} else {
+				CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead) = 1;
+			}
+		}
+	}
 }
 
 
@@ -292,46 +327,6 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 }
 
 
-static float computeFresnelReflectance(float n0, float n1) {
-	// Reflectance (specular):
-	// percentage of light leaving at surface without any interaction
-	// using Fesnel approximation by Schlick (no incident angle, no polarization)
-	// Q: why are the ^2 different than in Schlicks approximation?
-	float nDiff = n0 - n1;
-	float nSum = n0 + n1;
-	return (nDiff * nDiff) / (nSum * nSum);
-}
-
-
-static void initPhotonStates(size_t totalThreadCount, float R_specular) {
-	for (int i = 0; i < totalThreadCount; i++) {
-		PhotonTracker newState = createNewPhotonTracker();
-		newState.weight -= R_specular;
-		CLMEM_ACCESS_ARRAY(stateBuffer, PhotonTracker, i) = newState;
-	}
-}
-
-
-static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThreadCount, uint32_t* outFinishCount, float R_specular) {
-	// Check for finished photons
-	for (int i = 0; i < totalThreadCount; i++) {
-		if (CLMEM_ACCESS_AOS(stateBuffer, PhotonTracker, i, weight) == 0
-		&& !CLMEM_ACCESS_AOS(stateBuffer, PhotonTracker, i, isDead)) {
-			(*outFinishCount)++;
-			// Launch new only if next round cannot overachieve
-			if ((*outFinishCount) + totalThreadCount <= processPhotonCount) {
-				PhotonTracker newState = createNewPhotonTracker();
-				newState.weight -= R_specular;
-				newState.rngState = wang_hash((*outFinishCount) + totalThreadCount);
-				CLMEM_ACCESS_ARRAY(stateBuffer, PhotonTracker, i) = newState;
-			} else {
-				CLMEM_ACCESS_AOS(stateBuffer, PhotonTracker, i, isDead) = 1;
-			}
-		}
-	}
-}
-
-
 static void simulate(cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, 
 uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl_event kernelEvent) {
 
@@ -348,16 +343,16 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 		// Upload photon states
 		//TODO since buffer updates are sparse, map could be faster than write in whole
 		CL(EnqueueWriteBuffer, cmd, stateBuffer, CL_FALSE, 0,
-			photonStateBufferSize, getCLHostPointer(stateBuffer), 0, NULL, NULL);
+			photonStateBufferSize, CLMEM(stateBuffer), 0, NULL, NULL);
 
 		// Run a batch of photons
 		CL(EnqueueNDRangeKernel, cmd, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
 
 		// Download photon states
 		CL(EnqueueReadBuffer, cmd, stateBuffer, CL_FALSE, 0,
-			photonStateBufferSize, getCLHostPointer(stateBuffer), 0, NULL, NULL);
+			photonStateBufferSize, CLMEM(stateBuffer), 0, NULL, NULL);
 		if (debugBuffer) { // download debug buffer if in debug mode
-			CL(EnqueueReadBuffer, cmd, debugBuffer, CL_FALSE, 0, 2048, getCLHostPointer(debugBuffer), 0, NULL, NULL);
+			CL(EnqueueReadBuffer, cmd, debugBuffer, CL_FALSE, 0, 2048, CLMEM(debugBuffer), 0, NULL, NULL);
 		}
 
 		// Wait for async commands to finish
@@ -376,6 +371,24 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 }
 
 
+// Declaration of kernel function to be able to use it from CPU code
+void mcml(
+	float nAbove,
+	float nBelow,
+	Layer* layers,
+	int layerCount,
+	Boundary* boundaries,
+	int size_r,
+	int size_a,
+	int size_z,
+	float delta_r, 
+	float delta_z,
+	volatile Weight* R_ra,
+	volatile Weight* T_ra,
+	volatile Weight* A_rz,
+	PhotonTracker* photonStates);
+
+
 static void simulateOnCPU(SimulationStruct sim, Layer* layers, Boundary* boundaries, Weight* R, Weight* A, Weight* T,
 uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 	float nAbove = sim.layers[0].n; // first and last layer have only n initialized...
@@ -388,9 +401,19 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 	uint32_t finishedPhotonCount = 0;
 	if (rank == 0) out << '\n';
 	while (finishedPhotonCount < photonCount) {
-		mcml(nAbove, nBelow, layers, sim.n_layers, // input
-			radialBinCount, angularBinCount, depthBinCount, radialBinCentimeters, depthBinCentimeters, R, T, A, // output
-			(PhotonTracker*)getCLHostPointer(stateBuffer));// intermediate buffer
+		mcml(
+			nAbove,
+			nBelow,
+			layers,
+			sim.n_layers,
+			boundaries,
+			radialBinCount,
+			angularBinCount,
+			depthBinCount,
+			radialBinCentimeters,
+			depthBinCentimeters,
+			R, T, A,
+			(PhotonTracker*)CLMEM(stateBuffer));
 		restartFinishedPhotons(photonCount, 1, &finishedPhotonCount, R_specular);
 		uint32_t totalFinishedPhotonCount = 0;
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -408,9 +431,9 @@ static void downloadOutputArrays(SimulationStruct sim, cl_command_queue cmd, cl_
 	size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(Weight);
 	size_t transmissionBufferSize = reflectanceBufferSize;
 	size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(Weight);
-	CL(EnqueueReadBuffer, cmd, R, CL_FALSE, 0, reflectanceBufferSize, getCLHostPointer(R), 0, NULL, NULL);
-	CL(EnqueueReadBuffer, cmd, T, CL_FALSE, 0, transmissionBufferSize, getCLHostPointer(T), 0, NULL, NULL);
-	CL(EnqueueReadBuffer, cmd, A, CL_FALSE, 0, absorptionBufferSize, getCLHostPointer(A), 0, NULL, NULL);
+	CL(EnqueueReadBuffer, cmd, R, CL_FALSE, 0, reflectanceBufferSize, CLMEM(R), 0, NULL, NULL);
+	CL(EnqueueReadBuffer, cmd, T, CL_FALSE, 0, transmissionBufferSize, CLMEM(T), 0, NULL, NULL);
+	CL(EnqueueReadBuffer, cmd, A, CL_FALSE, 0, absorptionBufferSize, CLMEM(A), 0, NULL, NULL);
 	CL(Finish, cmd);
 }
 
@@ -419,13 +442,10 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 	int radialBinCount = sim.det.nr;
 	int angularBinCount = sim.det.na;
 	int depthBinCount = sim.det.nz;
-	size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(Weight);
-	size_t transmissionBufferSize = reflectanceBufferSize;
-	size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(Weight);
 	// Sum RAT buffers from all processes
-	MPI(Reduce, getCLHostPointer(R), outR, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI(Reduce, getCLHostPointer(T), outT, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI(Reduce, getCLHostPointer(A), outA, radialBinCount*depthBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI(Reduce, CLMEM(R), outR, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI(Reduce, CLMEM(T), outT, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI(Reduce, CLMEM(A), outA, radialBinCount*depthBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
 }
 
 
@@ -504,8 +524,12 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		#ifndef NO_GPU
 		simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular, kernelEvent);
 		#else
-		simulateOnCPU(simulations[simIndex], getCLHostPointer(layersPerSimulation[simIndex]), getCLHostPointer(boundariesPerSimulation[simIndex]),
-			getCLHostPointer(reflectancePerSimulation[simIndex]), getCLHostPointer(absorptionPerSimulation[simIndex]), getCLHostPointer(transmissionPerSimulation[simIndex]),
+		simulateOnCPU(simulations[simIndex],
+			(Layer*)CLMEM(layersPerSimulation[simIndex]),
+			(Boundary*)CLMEM(boundariesPerSimulation[simIndex]),
+			(Weight*)CLMEM(reflectancePerSimulation[simIndex]),
+			(Weight*)CLMEM(absorptionPerSimulation[simIndex]),
+			(Weight*)CLMEM(transmissionPerSimulation[simIndex]),
 			processPhotonCount, targetPhotonCount, rank, R_specular);
 		#endif
 

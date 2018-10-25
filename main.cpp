@@ -27,9 +27,16 @@ int main(int nargs, char** args) {
 	assert(nargs == 2);
 	char* filename = args[1];
 
-	// Bypass all multiprocessor stuff and use dummy info
-	allocCLKernelResources(1, "", filename, 0);
-	runCLKernel(0, 0, 1, 1, 1, 0);
+	MPI_Init(&nargs, &args);
+	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	int processCount; MPI_Comm_size(MPI_COMM_WORLD, &processCount);
+
+	// 1 thread
+	allocCLKernelResources(1, "", filename, rank);
+	// no command queue, no kernel
+	runCLKernel(0, 0, 1, 1, processCount, rank);
+
+	MPI_Finalize();
 	return 0;
 
 	#else

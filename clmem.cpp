@@ -2,6 +2,7 @@
 #include <map>
 #define DEBUG
 #include "clcheck.h" // CL macro
+
 void createGLBuffer(size_t size, void* outBuffer);
 
 typedef std::map<cl_mem, void*> Map;

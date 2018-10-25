@@ -28,7 +28,8 @@
 
 #define BoundaryArray __global struct Boundary*
 #define LayerArray __global struct Layer*
-#define WeightArray volatile __global ulong*
+#define Weight ulong
+#define WeightArray volatile __global Weight*
 
 #undef PI
 #define PI 3.14159265359f
@@ -209,7 +210,7 @@ WeightArray R_ra, WeightArray T_ra) {
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(R_ra, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&CLMEM_ACCESS_ARRAY2D(R_ra, Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		// photon is terminated
 		*photonWeight = 0;
 		return true;
@@ -221,7 +222,7 @@ WeightArray R_ra, WeightArray T_ra) {
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(T_ra, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&CLMEM_ACCESS_ARRAY2D(T_ra, Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		*photonWeight = 0;
 		return true;
 	}
@@ -408,7 +409,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 				float r = length(pos.xy);
 				int r_i = (int)floor(r / delta_r);
 				r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
-				add(&CLMEM_ACCESS_ARRAY2D(A_rz, size_r, z_i, r_i), (uint)(dW * 0xFFFFFFFF));
+				add(&CLMEM_ACCESS_ARRAY2D(A_rz, Weight, size_r, z_i, r_i), (uint)(dW * 0xFFFFFFFF));
 			}
 			#endif
 

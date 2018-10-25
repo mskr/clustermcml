@@ -110,20 +110,29 @@ clmem.preprocessed.cpp: clmem.cpp
 # Windows "No GPU" build, with debug information
 ################################################################################
 
-cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o clmem-windows.o
-	$(MSVC)/link cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o clmem-windows.o /DEBUG \
+cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o cpumcml-clmem-windows.o
+	$(MSVC)/link cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o cpumcml-clmem-windows.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
+		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"cpumcml-windows.exe"
 
-cpumcml-main-windows.o: main.cpp clusterlib.h clmem.h
+# Spare the extra preprocessed files here and compile straight from cpp to object
+cpumcml-main-windows.o: main.cpp clmem.h
 	$(MSVC)/cl main.cpp /c /Zi \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/c /Fo"cpumcml-main-windows.o"
+
+cpumcml-clmem-windows.o: clmem.cpp
+	$(MSVC)/cl clmem.cpp /c /Zi \
+		/D"NO_GPU" \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/c /Fo"cpumcml-clmem-windows.o"
 
 cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
 	$(MSVC)/cl runMCML.cpp /c /Zi \

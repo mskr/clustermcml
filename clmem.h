@@ -35,6 +35,11 @@
 
 #if !defined(__OPENCL_VERSION__)
 
+#ifdef NO_GPU
+#define cl_mem int
+#define cl_context int
+#endif
+
 /**
 * Data Problem 2
 * --------------
@@ -43,8 +48,9 @@
 * Owner is always only this module.
 * Handles also valid for corresponding device memory.
 */
-#define CLMALLOC_INPUT(N, T) allocCLInputBuffer(N * sizeof(T));
-#define CLMALLOC_OUTPUT(N, T) allocCLOutputBuffer(N * sizeof(T));
+#define CLMALLOC_INPUT(N, T) allocCLInputBuffer(N * sizeof(T))
+#define CLMALLOC_OUTPUT(N, T) allocCLOutputBuffer(N * sizeof(T))
+#define CLMEM(handle) getCLHostPointer(handle)
 cl_mem allocCLInputBuffer(size_t size);
 cl_mem allocCLOutputBuffer(size_t size);
 void* getCLHostPointer(cl_mem handle);
@@ -64,7 +70,7 @@ cl_mem getCLMemSharedGLObject(int i);
 
 void freeCLMem();
 
-#endif // __OPENCL_VERSION__
+#endif // !defined(__OPENCL_VERSION__)
 
 
 /**
@@ -76,14 +82,7 @@ void freeCLMem();
 * SOA == Struct of Arrays
 */
 
-#if __OPENCL_VERSION__
-#define CLMEM_ACCESS_ARRAY(pointer, i) (pointer[i])
-#define CLMEM_ACCESS_ARRAY2D(pointer, size_j, i, j) (pointer[i * size_j + j])
-#define CLMEM_ACCESS_AOS(pointer, i, member) (pointer[i].member)
-#define CLMEM_ACCESS_SOA(pointer, i, member) (pointer->member[i])
-#else
-#define CLMEM_ACCESS_ARRAY(handle, T, i) (((T*)getCLHostPointer(handle))[i])
-#define CLMEM_ACCESS_ARRAY2D(handle, T, size_j, i, j) (((T*)getCLHostPointer(handle))[i * size_j + j])
-#define CLMEM_ACCESS_AOS(handle, T, i, member) (((T*)getCLHostPointer(handle))[i].member)
-#define CLMEM_ACCESS_SOA(handle, T, i, member) (((T*)getCLHostPointer(handle))->member[i])
-#endif
+#define CLMEM_ACCESS_ARRAY(pointer, T, i) (((T*)pointer)[i])
+#define CLMEM_ACCESS_ARRAY2D(pointer, T, size_j, i, j) (((T*)pointer)[i * size_j + j])
+#define CLMEM_ACCESS_AOS(pointer, T, i, member) (((T*)pointer)[i].member)
+#define CLMEM_ACCESS_SOA(pointer, T, i, member) (((T*)pointer)->member[i])
