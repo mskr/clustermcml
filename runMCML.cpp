@@ -181,7 +181,7 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, n) = sim.layers[j].n;
 	}
 	// One more boundary
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, z) = sim.layers[layerCount-1].z_max;
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, z) = sim.layers[layerCount].z_max;
 	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield), 
 		sim.boundaries[layerCount].heightfield, BOUNDARY_SAMPLES);
 }
