@@ -8,6 +8,10 @@ void createGLBuffer(size_t size, void* outBuffer);
 typedef std::map<cl_mem, void*> Map;
 static Map map;
 
+#ifdef NO_GPU
+static int handle = 0;
+#endif
+
 // Current OpenCL context that keeps the device memory pool
 static cl_context context = 0;
 
@@ -23,7 +27,6 @@ void setCLMemContext(cl_context c) {
 
 cl_mem allocCLInputBuffer(size_t size) {
 	#ifdef NO_GPU
-	static int handle = 0;
 	handle++;
 	#else
 	assert(context);
@@ -37,7 +40,6 @@ cl_mem allocCLInputBuffer(size_t size) {
 
 cl_mem allocCLOutputBuffer(size_t size) {
 	#ifdef NO_GPU
-	static int handle = 0;
 	handle++;
 	#else
 	assert(context);
@@ -52,7 +54,7 @@ cl_mem allocCLOutputBuffer(size_t size) {
 	#else
 	handle = CLCREATE(Buffer, context, CL_MEM_READ_WRITE, size, NULL);
 	#endif // GL_VISUALIZATION
-	#endif // NO_GPU
+	#endif // !NO_GPU
 	void* pointer = malloc(size);
 	assert(pointer);
 	map[handle] = pointer;
