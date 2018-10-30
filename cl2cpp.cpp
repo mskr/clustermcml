@@ -81,7 +81,7 @@ void skipNestedParanthesis(std::string& src, int* j, char* c, int* lineCount) {
 void skipLineComment(std::string& src, int* j, char* c, int* lineCount) {
 	int k = (*j)+1;
 	char d = src[k];
-	while (d != '\n') {
+	while (d != '\n' && d != '\0'/*EOF*/) {
 		k++;
 		d = src[k];
 	}
