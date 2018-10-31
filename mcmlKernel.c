@@ -405,6 +405,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 			{
 				float z = pos.z;
 				int z_i = (int)floor(z / delta_z);
+				z_i = max(0, z_i);
 				z_i = min(z_i, size_z - 1);
 				float r = length(pos.xy);
 				int r_i = (int)floor(r / delta_r);
