@@ -8,6 +8,7 @@
 #endif
 
 #include "clmem.h"
+#include "Log.h"
 
 // interfaces for external code
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* otherOptions, int rank);
@@ -31,6 +32,8 @@ int main(int nargs, char** args) {
 	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	int processCount; MPI_Comm_size(MPI_COMM_WORLD, &processCount);
 
+	if (rank == 0) out << processCount << " processes\n";
+
 	// 1 thread
 	allocCLKernelResources(1, "", filename, rank);
 	// no command queue, no kernel
@@ -48,6 +51,8 @@ int main(int nargs, char** args) {
 	cl_kernel kernel;
 	size_t totalThreadCount, simdThreadCount;
 	initCluster(nargs, args, &processCount, &context, &cmdQueue1, &kernel, &totalThreadCount, &simdThreadCount);
+
+	//TODO implement printClusterInfo(info);
 
 	// Get kernel configuration (defines etc.)
 	char* kernelOptions = nargs >= 3 ? args[2] : "";
@@ -73,7 +78,6 @@ int main(int nargs, char** args) {
 	// Release shared GL buffers as they can now be used by GL
 	for (int i = 0; i < getCLMemSharedGLObjectCount(); i++)
 		CL(EnqueueReleaseGLObjects, cmdQueue1, 1, &getCLMemSharedGLObject(i), 0, NULL, NULL);
-	}
 	runGLRenderLoop();
 	#endif
 
