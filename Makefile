@@ -153,17 +153,17 @@ mcmlKernel.c.preprocessed.cpp: mcmlKernel.c.cpp Boundary.h Layer.h PhotonTracker
 		/P /Fi"mcmlKernel.c.preprocessed.cpp"
 
 mcmlKernel.c.cpp: mcmlKernel.c cl2cpp.exe
-	cl2cpp mcmlKernel.c
+	cl2cpp mcmlKernel.c -v
 
 cl2cpp.exe: cl2cpp.o
-	$(MSVC)/link cl2cpp.o \
+	$(MSVC)/link cl2cpp.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
 		/OUT:"cl2cpp.exe"
 
 cl2cpp.o: cl2cpp.cpp
-	$(MSVC)/cl cl2cpp.cpp /c \
+	$(MSVC)/cl cl2cpp.cpp /c /Zi \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cl2cpp.o"
