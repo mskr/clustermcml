@@ -487,10 +487,10 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 		// ensure no bins can overflow
 		assert(simulations[simIndex].number_of_photons <= 0xFFFFFFFFu);
-		// layer and boundary mem
-		setupInputArrays(simulations[simIndex], simIndex);
 		// RAT buffer mem
 		allocOutputArrays(simulations[simIndex], simIndex);
+		// layer and boundary mem
+		setupInputArrays(simulations[simIndex], simIndex);
 	}
 
 	// Debug buffer
