@@ -89,6 +89,36 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 - Try quasirandom Monte Carlo (blue noise instead of true random)
     - http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 
+## Project Modules
+
+### clusterlib
+
+Provides convenience functions for managing a cluster setup using MPI and OpenCL.
+
+### randomlib
+
+Provides GPU-friendly random number generators and hashes.
+
+### clmem
+
+Provides macros for struct alignment, memory allocation and data layout.
+
+Useful for data-oriented design.
+
+[Data-oriented Design Talk (Nikolov, CppCon 2018)](https://www.youtube.com/watch?v=yy8jQgmhbAU)
+
+[Data-oriented Design References by Asawicki](http://www.asawicki.info/news_1422_data-oriented_design_-_links_and_thoughts.html)
+
+### cl2cpp
+
+OpenCL C to C++ transpiler for enabling better debuggable "No GPU" builds of the program.
+
+### gl-windows
+
+Provides convenience methods for running an OpenGL shader with some uniform buffers on Windows.
+The shader runs on a viewport-filling quad and can be edited "live" in the console.
+
+Useful for visualizing simulation outputs.
 
 ## Project TODOs
 
