@@ -115,7 +115,6 @@ cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-ke
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
-		/LIBPATH:$(MPI_LIBDIR) $(MPI_LIBFILE) \
 		/OUT:"cpumcml-windows.exe"
 
 # Spare the extra preprocessed files here and compile straight from cpp to object
@@ -124,7 +123,6 @@ cpumcml-main-windows.o: main.cpp clmem.h
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/c /Fo"cpumcml-main-windows.o"
 
 cpumcml-clmem-windows.o: clmem.cpp
@@ -139,7 +137,6 @@ cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/I$(MPI_INCLUDE) /FI$(MPI_HEADER) \
 		/c /Fo"cpumcml-runMCML-windows.o"
 
 cpumcml-kernel-windows.o: mcmlKernel.c.preprocessed.cpp

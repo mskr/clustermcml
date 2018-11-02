@@ -55,9 +55,8 @@ static PhotonTracker createNewPhotonTracker() {
 
 
 static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* outSimCount) {
-	out << "--- "<<name<<" --->" << '\n';
+	out << "Following info was read from input file \"" << name << "\":\n";
 	*outSimCount = read_simulation_data(name, &simulations, ignoreA?1:0, explicitBoundaries?1:0);
-	out << "<--- "<<name<<" ---" << '\n';
 }
 
 
@@ -361,7 +360,7 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 
 		restartFinishedPhotons(photonCount, totalThreadCount, &finishedPhotonCount, R_specular);
 
-		uint32_t totalFinishedPhotonCount = 0;
+		uint32_t totalFinishedPhotonCount = finishedPhotonCount;
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
 
 		// Print status
@@ -415,7 +414,7 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 			R, T, A,
 			(PhotonTracker*)CLMEM(stateBuffer));
 		restartFinishedPhotons(photonCount, 1, &finishedPhotonCount, R_specular);
-		uint32_t totalFinishedPhotonCount = 0;
+		uint32_t totalFinishedPhotonCount = finishedPhotonCount;
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
 		// Print status
 		if (rank == 0) out << '\r' << "Photons terminated: " << totalFinishedPhotonCount << "/" << targetPhotonCount << Log::flush;
@@ -471,7 +470,9 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
 	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, true, &simCount);
 
+	#ifndef NO_GPU
 	broadcastInputData(rank);
+	#endif
 
 	// Allocate per-simulation arrays
 	layersPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));

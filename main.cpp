@@ -1,7 +1,8 @@
 #include <assert.h> // assert
 
 #define DEBUG
-#include "clcheck.h"
+#include "clcheck.h" // CL macro
+#include "mpicheck.h" // MPI macro
 
 #ifndef NO_GPU
 #include "clusterlib.h"
@@ -28,9 +29,9 @@ int main(int nargs, char** args) {
 	assert(nargs == 2);
 	char* filename = args[1];
 
-	MPI_Init(&nargs, &args);
-	int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	int processCount; MPI_Comm_size(MPI_COMM_WORLD, &processCount);
+	MPI(Init, &nargs, &args);
+	int rank = 0; MPI(Comm_rank, MPI_COMM_WORLD, &rank);
+	int processCount = 1; MPI(Comm_size, MPI_COMM_WORLD, &processCount);
 
 	if (rank == 0) out << processCount << " processes\n";
 
@@ -39,7 +40,7 @@ int main(int nargs, char** args) {
 	// no command queue, no kernel
 	runCLKernel(0, 0, 1, 1, processCount, rank);
 
-	MPI_Finalize();
+	MPI(Finalize);
 	return 0;
 
 	#else
