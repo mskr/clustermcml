@@ -12,7 +12,8 @@
 #include "Log.h"
 #include "clerr2str.h"
 #define DEBUG
-#include "clcheck.h"
+#include "clcheck.h" // CL macro
+#include "mpicheck.h" // MPI macro
 
 // Interfaces for external code
 const char* getCLKernelName();
@@ -61,7 +62,7 @@ void readCLSourceCode(char* kernelfile, char** outsrc, size_t* outlen) {
 	std::ifstream kfilestream(kfilepath, std::fstream::in | std::ifstream::binary);
 	if (!kfilestream.is_open()) {
 		out << "Could not open kernel file \"" << kernelfile << "\"." << '\n';
-		MPI_Abort(MPI_COMM_WORLD, 1);
+		MPI(Abort, MPI_COMM_WORLD, 1);
 	}
 	size_t kernellen = 0;
 	struct _stat kfilestat;
@@ -153,12 +154,12 @@ void writeCLByteCode(char* kernelfile, cl_program program, cl_uint devicecount, 
 *
 */
 void broadcastCLSourceCode(char** src, size_t* len) {
-	MPI_Bcast(len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+	MPI(Bcast, len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
 	if (rank_ != 0) {
 		char* s = new char[*len];
 		*src = s;
 	}
-	MPI_Bcast(*src, (int)*len, MPI_CHAR, 0, MPI_COMM_WORLD);
+	MPI(Bcast, *src, (int)*len, MPI_CHAR, 0, MPI_COMM_WORLD);
 }
 
 /**
@@ -270,7 +271,7 @@ void usage()  {
 	out << "Argument 1: OpenCL kernel file" << '\n';
 	out << "Argument 2 (optional): OpenCL compiler options" << '\n';
 	out << "Argument 3 (optional): Options for " << getCLKernelName() << '\n';
-	MPI_Abort(MPI_COMM_WORLD, 1);
+	MPI(Abort, MPI_COMM_WORLD, 1);
 }
 
 /**
@@ -282,8 +283,8 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 	if(nargs < 2) usage();
 	char* kernelfile = args[1];
 	char* cl_compiler_options = nargs >= 3 ? args[2] : "";
-	MPI_Init(&nargs, &args);
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
+	MPI(Init, &nargs, &args);
+	MPI(Comm_rank, MPI_COMM_WORLD, &rank_);
 
 	cl_uint deviceCount, platformCount;
 	char deviceNames[1280];
@@ -305,12 +306,12 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 	if (rank_ == 0) {
 		if (compilationErrors[0] != '\0') {
 			out << compilationErrors << '\n' << Log::flush;
-			MPI_Abort(MPI_COMM_WORLD, 1);
+			MPI(Abort, MPI_COMM_WORLD, 1);
 		}
 		writeCLByteCode(kernelfile, program_, deviceCount, deviceNames);
 	}
 	createCLCommandQueue(context, devices_[0], outCommandQueue);
-	MPI_Comm_size(MPI_COMM_WORLD, outProcessCount);
+	MPI(Comm_size, MPI_COMM_WORLD, outProcessCount);
 	/*****************************************************************************************************************
 	// some of the gpu threads share the same register memory and L1 cache, forming "multiprocessors"
 	// CL_DEVICE_MAX_COMPUTE_UNITS == number of multiprocessors
@@ -355,6 +356,6 @@ void cleanupCluster(cl_context context, cl_command_queue cmdQueue, cl_kernel ker
 	CL(ReleaseContext, context);
 	delete[] src_; // allocated in readCLSourceCode
 	delete[] devices_; // allocated in createCLContext
-	MPI_Finalize();
+	MPI(Finalize);
 	initialized_ = false;
 }
