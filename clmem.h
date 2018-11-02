@@ -48,8 +48,8 @@
 * Owner is always only this module.
 * Handles also valid for corresponding device memory.
 */
-#define CLMALLOC_INPUT(N, T) allocCLInputBuffer(N * sizeof(T))
-#define CLMALLOC_OUTPUT(N, T) allocCLOutputBuffer(N * sizeof(T))
+#define CLMALLOC_INPUT(N, T) allocCLInputBuffer((N) * sizeof(T))
+#define CLMALLOC_OUTPUT(N, T) allocCLOutputBuffer((N) * sizeof(T))
 #define CLMEM(handle) getCLHostPointer(handle)
 cl_mem allocCLInputBuffer(size_t size);
 cl_mem allocCLOutputBuffer(size_t size);
