@@ -536,6 +536,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 		downloadOutputArrays(simulations[simIndex], cmdQueue, reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
 
+		#ifndef NO_GPU
 		int radialBinCount = simulations[simIndex].det.nr;
 		int angularBinCount = simulations[simIndex].det.na;
 		int depthBinCount = simulations[simIndex].det.nz;
@@ -547,12 +548,19 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		Weight* totalAbsorption = (Weight*)malloc(absorptionBufferSize);
 		reduceOutputArrays(simulations[simIndex], reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex],
 			totalReflectance, totalTransmittance, totalAbsorption);
+		#else
+		Weight* totalReflectance = (Weight*)CLMEM(reflectancePerSimulation[simIndex]);
+		Weight* totalTransmittance = (Weight*)CLMEM(absorptionPerSimulation[simIndex]);
+		Weight* totalAbsorption = (Weight*)CLMEM(transmissionPerSimulation[simIndex]);
+		#endif
 
 		if (rank == 0) writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance, kernelEvent);
 
+		#ifndef NO_GPU
 		free(totalReflectance);
 		free(totalTransmittance);
 		free(totalAbsorption);
+		#endif
 
 		CL(ReleaseEvent, kernelEvent);
 	}
