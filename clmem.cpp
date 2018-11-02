@@ -5,9 +5,12 @@
 
 void createGLBuffer(size_t size, void* outBuffer);
 
-typedef std::map<cl_mem, void*> Map;
-static Map map;
+// Reusing CL memory handles:
+// CL keeps the mapping to device memory internally
+// Here we map the same handles to host pointers
+static std::map<cl_mem, void*> map;
 
+// If no CL is present we use a simple counter as handle
 #ifdef NO_GPU
 static int handle = 0;
 #endif
