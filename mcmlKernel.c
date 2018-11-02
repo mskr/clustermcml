@@ -90,12 +90,12 @@ float readRadialHeightfield(float2 pos, float3 center, __global float heightfiel
 */
 float intersectHeightfield(float3 pos, float3 dir, float len, float3 center, __global float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
 	// Coarse raymarching search
-	float D = 0.00001f;
+	float D = min(0.00001f, len);
 	float3 p = pos;
 	float lastDz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
 	float d = D;
 	float3 ds = D * dir;
-	while (d < len) {
+	while (d <= len) {
 		p += ds;
 		float dz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
 		if (sign(dz) != sign(lastDz)) {
