@@ -550,8 +550,8 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 			totalReflectance, totalTransmittance, totalAbsorption);
 		#else
 		Weight* totalReflectance = (Weight*)CLMEM(reflectancePerSimulation[simIndex]);
-		Weight* totalTransmittance = (Weight*)CLMEM(absorptionPerSimulation[simIndex]);
-		Weight* totalAbsorption = (Weight*)CLMEM(transmissionPerSimulation[simIndex]);
+		Weight* totalTransmittance = (Weight*)CLMEM(transmissionPerSimulation[simIndex]);
+		Weight* totalAbsorption = (Weight*)CLMEM(absorptionPerSimulation[simIndex]);
 		#endif
 
 		if (rank == 0) writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance, kernelEvent);
