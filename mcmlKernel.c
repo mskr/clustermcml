@@ -98,7 +98,8 @@ float intersectHeightfield(float3 pos, float3 dir, float len, float3 center, __g
 	while (d <= len) {
 		p += ds;
 		float dz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
-		if (sign(dz) != sign(lastDz)) {
+		// Detect sign change
+		if ((lastDz > 0 && dz < 0) || (lastDz < 0 && dz > 0)) {
 			// if ray came from +z, i.e. (dz < 0), normal will point down
 			if (dz < 0) *outNormal *= -1.0f;
 			// Path to intersection
