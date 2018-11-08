@@ -175,7 +175,8 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
     Real DdPmV = dot(cone.ray.direction, PmV);
     Real UdPmV = dot(lineDirection, PmV);
     Real PmVdPmV = dot(PmV, PmV);
-    Real cosAngleSqr = cone.cosAngle * cone.cosAngle;
+    Real cosAngle = cos(cone.angle);
+    Real cosAngleSqr = cosAngle * cosAngle;
     Real c2 = DdU * DdU - cosAngleSqr;
     Real c1 = DdU * DdPmV - cosAngleSqr * UdPmV;
     Real c0 = DdPmV * DdPmV - cosAngleSqr * PmVdPmV;
@@ -190,7 +191,7 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
             // intersect the double-sided cone.
             result.intersect = false;
             result.type = 0;
-            return;
+            return result;
         }
         else if (discr > (Real)0)
         {
@@ -252,7 +253,7 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
                 // with the positive cone.
                 result.intersect = false;
                 result.type = 0;
-                return;
+                return result;
             }
         }
         else  // discr == 0
@@ -272,7 +273,7 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
             {
                 result.intersect = false;
                 result.type = 0;
-                return;
+                return result;
             }
         }
     }
@@ -304,7 +305,7 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
             // intersection is interior to the positive cone.
             result.intersect = false;
             result.type = 0;
-            return;
+            return result;
         }
     }
     else if (c0 != (Real)0)
@@ -312,7 +313,7 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
         // c2 = c1 = 0, c0 != 0.  Cross(D,U) is perpendicular to Cross(P-V,U)
         result.intersect = false;
         result.type = 0;
-        return;
+        return result;
     }
     else
     {
