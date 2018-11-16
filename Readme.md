@@ -103,11 +103,7 @@ Provides GPU-friendly random number generators and hashes.
 
 Provides macros for struct alignment, memory allocation and data layout.
 
-Useful for data-oriented design.
-
-[Data-oriented Design Talk (Nikolov, CppCon 2018)](https://www.youtube.com/watch?v=yy8jQgmhbAU)
-
-[Data-oriented Design References by Asawicki](http://www.asawicki.info/news_1422_data-oriented_design_-_links_and_thoughts.html)
+Useful for [data](https://www.youtube.com/watch?v=rX0ItVEVjHc)-[orie](https://twitter.com/aras_p/status/1044656885100675072)[nted](https://twitter.com/BrookeHodgman/status/1049278775215570944) [des](https://www.youtube.com/watch?v=yy8jQgmhbAU)[ign](http://www.asawicki.info/news_1422_data-oriented_design_-_links_and_thoughts.html).
 
 ### cl2cpp
 
