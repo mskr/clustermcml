@@ -26,7 +26,7 @@
 #include "Layer.h"
 #include "PhotonTracker.h"
 
-#include "intersectCone.c"
+#include "geometrylib.c"
 
 #define BoundaryArray __global struct Boundary*
 #define LayerArray __global struct Layer*
