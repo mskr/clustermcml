@@ -1,44 +1,37 @@
-// David Eberly, Geometric Tools, Redmond WA 98052
-// Copyright (c) 1998-2018
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
-// http://www.geometrictools.com/License/Boost/LICENSE_1_0.txt
-// File Version: 3.0.2 (2018/10/05)
-// Adapted to fit OpenCL C by Marius Kircher (2018/11/08)
-
 #define Real float
 #define Real3 float3
+#define Real2 float2
+#undef INFINITY
 #define INFINITY 3.402823e+38
 
 
 /**
 *
 */
-struct Ray {
+typedef struct {
     Real3 origin, direction;
-};
+} Ray3;
 
 
 /**
 *
 */
-struct Cone3 {
+typedef struct {
     // The cone vertex is the ray origin and the cone axis direction is the
     // ray direction.  The direction must be unit length.  The angle must be
     // in (0,pi/2).  The height must be in (0,+infinity), where +infinity is
     // INFINITY.
-    Ray ray;
+    Ray3 ray;
     Real angle;
     Real height;
-};
+    Real cap; // to cap the pointy end, set this to a value in (0,height)
+} Cone3;
 
 
 /**
 *
 */
-struct Result {
-    bool intersect;
-
+typedef struct {
     // Because the intersection of line and cone with infinite height
     // h > 0 can be a ray or a line, we use a 'type' value that allows
     // you to decide how to interpret the parameter[] and point[] values.
@@ -57,98 +50,44 @@ struct Result {
     // If the cone height h is finite, only types 0, 1, or 2 can occur.
     int type;
     Real parameter[2];  // Relative to incoming line.
-    Real3 point[2];
-};
+} RayConeIntersectionResult;
 
-
-/**
-*
+/*
+* Distance of p to plane with origin o and normalized normal n
 */
-struct IntervalIntervalResult {
-    bool intersect;
-
-    // Static queries (no motion of intervals over time).  The number of
-    // number of intersections is 0 (no overlap), 1 (intervals are just
-    // touching), or 2 (intervals overlap in an interval).  If 'intersect'
-    // is false, numIntersections is 0 and 'overlap' is set to
-    // [maxReal,-maxReal].  If 'intersect' is true, numIntersections is
-    // 1 or 2.  When 1, 'overlap' is set to [x,x], which is degenerate and
-    // represents the single intersection point x.  When 2, 'overlap' is
-    // the interval of intersection.
-    int numIntersections;
-    Real overlap[2];
-
-    // Dynamic queries (intervals moving with constant speeds).  If
-    // 'intersect' is true, the contact times are valid and
-    //     0 <= firstTime <= lastTime,  firstTime <= maxTime
-    // If 'intersect' is false, there are two cases reported.  If the
-    // intervals will intersect at firstTime > maxTime, the contact times
-    // are reported just as when 'intersect' is true.  However, if the
-    // intervals will not intersect, then firstTime = maxReal and
-    // lastTime = -maxReal.
-    Real firstTime, lastTime;
-};
-
-
-/**
-* Intersection query for two intervals (1-dimensional query).
-*
-* The intervals are [u0,u1] and [v0,v1], where u0 <= u1 and v0 <= v1, and
-* where the endpoints are any finite floating-point numbers.  Degenerate
-* intervals are allowed (u0 = u1 or v0 = v1).  The query does not perform
-* validation on the input intervals.
-*
-* https://www.geometrictools.com/Documentation/IntersectionLine2Circle2.pdf
-*/
-IntervalIntervalResult findIntersectionIntervalInterval(Real* interval0, Real* interval1) {
-    IntervalIntervalResult result;
-    result.firstTime = INFINITY;
-    result.lastTime = -INFINITY;
-
-    if (interval0[1] < interval1[0] || interval0[0] > interval1[1])
-    {
-        result.numIntersections = 0;
-        result.overlap[0] = INFINITY;
-        result.overlap[1] = -INFINITY;
-    }
-    else if (interval0[1] > interval1[0])
-    {
-        if (interval0[0] < interval1[1])
-        {
-            result.numIntersections = 2;
-            result.overlap[0] =
-                (interval0[0] < interval1[0] ? interval1[0] : interval0[0]);
-            result.overlap[1] =
-                (interval0[1] > interval1[1] ? interval1[1] : interval0[1]);
-            if (result.overlap[0] == result.overlap[1])
-            {
-                result.numIntersections = 1;
-            }
-        }
-        else  // interval0[0] == interval1[1]
-        {
-            result.numIntersections = 1;
-            result.overlap[0] = interval0[0];
-            result.overlap[1] = result.overlap[0];
-        }
-    }
-    else  // interval0[1] == interval1[0]
-    {
-        result.numIntersections = 1;
-        result.overlap[0] = interval0[1];
-        result.overlap[1] = result.overlap[0];
-    }
-
-    result.intersect = (result.numIntersections > 0);
-    return result;
+Real calcPointPlaneDistance(Real3 p, Real3 o, Real3 n) {
+    Real a = dot(o, n);
+    a -= dot(n, p);
+    a /= dot(n, n);
+    return fabs(a);
 }
 
+/*
+* An intersection routine for rays and planes
+*/
+Real intersectPlane(Real3 pos, Real3 dir, Real3 middle, Real3 normal) {
+    Real a = dot(dir, normal);
+    if (a > -1e-6) return -1.0; // facing away
+    Real b = dot(middle - pos, normal);
+    if (b > -1e-6) return -1.0; // behind plane
+    return b / a;
+}
 
 /**
+* An intersection routine for rays and cones
+*
+* David Eberly, Geometric Tools, Redmond WA 98052
+* Copyright (c) 1998-2018
+* Distributed under the Boost Software License, Version 1.0.
+* http://www.boost.org/LICENSE_1_0.txt
+* http://www.geometrictools.com/License/Boost/LICENSE_1_0.txt
+* File Version: 3.0.2 (2018/10/05)
+* Ported to OpenCL C by Marius Kircher (2018/11/20)
+*
 * https://www.geometrictools.com/Documentation/IntersectionLineCone.pdf
 */
-Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
-    Result result;
+Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
+    RayConeIntersectionResult result;
     // The cone has vertex V, unit-length axis direction D, angle theta in
     // (0,pi/2), and height h in (0,+infinity).  The line is P + t*U, where U
     // is a unit-length direction vector.  Define g = cos(theta).  The cone
@@ -169,6 +108,22 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
     //   c0 = dot(D,P-V)^2 - g^2*dot(P-V,P-V)
     // The following code computes the t-interval that satisfies the quadratic
     // equation subject to the linear inequality constraints.
+    
+    Real t;
+    
+    // Handle degenerate case, when there is no cone direction.
+    // We interpret the cone for our use case as a annulus in the xy plane.
+    // Cap and height are interpreted as inner and outer radii of the annulus.
+    if (cone.ray.direction.x==0.0&&cone.ray.direction.y==0.0&&cone.ray.direction.z==0.0) {
+        t = intersectPlane(lineOrigin, lineDirection, cone.ray.origin, (Real3)(0,0,-sign(lineDirection.z)));
+        Real3 p = lineOrigin + t * lineDirection;
+        Real r = length(p.xy - cone.ray.origin.xy);
+        if (r >= cone.cap && r <= cone.height) {
+            return t;
+        } else {
+            return -1.0;
+        }
+    }
 
     Real3 PmV = lineOrigin - cone.ray.origin;
     Real DdU = dot(cone.ray.direction, lineDirection);
@@ -180,36 +135,34 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
     Real c2 = DdU * DdU - cosAngleSqr;
     Real c1 = DdU * DdPmV - cosAngleSqr * UdPmV;
     Real c0 = DdPmV * DdPmV - cosAngleSqr * PmVdPmV;
-    Real t;
 
-    if (c2 != (Real)0)
+    if (c2 != (Real)(0))
     {
         Real discr = c1 * c1 - c0 * c2;
-        if (discr < (Real)0)
+        if (discr < (Real)(0))
         {
             // The quadratic has no real-valued roots.  The line does not
             // intersect the double-sided cone.
-            result.intersect = false;
             result.type = 0;
-            return result;
+            return -1.0;
         }
-        else if (discr > (Real)0)
+        else if (discr > (Real)(0))
         {
             // The quadratic has two distinct real-valued roots.  However, one
             // or both of them might intersect the negative cone.  We are
             // interested only in those intersections with the positive cone.
             Real root = sqrt(discr);
-            Real invC2 = ((Real)1) / c2;
+            Real invC2 = ((Real)(1)) / c2;
             int numParameters = 0;
 
             t = (-c1 - root) * invC2;
-            if (DdU * t + DdPmV >= (Real)0)
+            if (DdU * t + DdPmV >= (Real)(0))
             {
                 result.parameter[numParameters++] = t;
             }
 
             t = (-c1 + root) * invC2;
-            if (DdU * t + DdPmV >= (Real)0)
+            if (DdU * t + DdPmV >= (Real)(0))
             {
                 result.parameter[numParameters++] = t;
             }
@@ -218,7 +171,6 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
             {
                 // The line intersects the positive cone in two distinct
                 // points.
-                result.intersect = true;
                 result.type = 2;
                 if (result.parameter[0] > result.parameter[1])
                 {
@@ -227,23 +179,27 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
                     result.parameter[1] = tmp;
                 }
             }
+            
             else if (numParameters == 1)
             {
                 // The line intersects the positive cone in a single point and
                 // the negative cone in a single point.  We report only the
                 // intersection with the positive cone.
-                result.intersect = true;
-                if (DdU > (Real)0)
+                if (DdU > (Real)(0))
                 {
+                    // Line enters positive cone at t==parameter[0]
+                    // and keeps intersecting until t==INFINITY,
+                    // in case there is no cone height constraint.
                     result.type = 3;
                     result.parameter[1] = INFINITY;
                 }
                 else
                 {
+                    // Line comes from t==-INFINITY and enters positive
+                    // cone at t==parameter[0] (assuming no height constraint).
                     result.type = 4;
                     result.parameter[1] = result.parameter[0];
                     result.parameter[0] = -INFINITY;
-
                 }
             }
             else
@@ -251,9 +207,8 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
                 // The line intersects the negative cone in two distinct
                 // points, but we are interested only in the intersections
                 // with the positive cone.
-                result.intersect = false;
                 result.type = 0;
-                return result;
+                return -1.0;
             }
         }
         else  // discr == 0
@@ -262,31 +217,28 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
             // cone at a single point.  Report only the point if it is on the
             // positive cone.
             t = -c1 / c2;
-            if (DdU * t + DdPmV >= (Real)0)
+            if (DdU * t + DdPmV >= (Real)(0))
             {
-                result.intersect = true;
                 result.type = 1;
                 result.parameter[0] = t;
                 result.parameter[1] = t;
             }
             else
             {
-                result.intersect = false;
                 result.type = 0;
-                return result;
+                return -1.0;
             }
         }
     }
-    else if (c1 != (Real)0)
+    else if (c1 != (Real)(0))
     {
         // c2 = 0, c1 != 0; U is a direction vector on the cone boundary
-        t = -((Real)0.5)*c0 / c1;
-        if (DdU * t + DdPmV >= (Real)0)
+        t = -((Real)(0.5))*c0 / c1;
+        if (DdU * t + DdPmV >= (Real)(0))
         {
             // The line intersects the positive cone and the ray of
             // intersection is interior to the positive cone.
-            result.intersect = true;
-            if (DdU > (Real)0)
+            if (DdU > (Real)(0))
             {
                 result.type = 3;
                 result.parameter[0] = t;
@@ -303,22 +255,19 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
         {
             // The line intersects the negative cone and the ray of
             // intersection is interior to the positive cone.
-            result.intersect = false;
             result.type = 0;
-            return result;
+            return -1.0;
         }
     }
-    else if (c0 != (Real)0)
+    else if (c0 != (Real)(0))
     {
         // c2 = c1 = 0, c0 != 0.  Cross(D,U) is perpendicular to Cross(P-V,U)
-        result.intersect = false;
         result.type = 0;
-        return result;
+        return -1.0;
     }
     else
     {
         // c2 = c1 = c0 = 0; the line is on the cone boundary.
-        result.intersect = true;
         result.type = 5;
         result.parameter[0] = -INFINITY;
         result.parameter[1] = +INFINITY;
@@ -326,36 +275,153 @@ Result intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
 
     if (cone.height < INFINITY)
     {
-        if (DdU != (Real)0)
+        if (DdU != (Real)(0))
         {
-            // Clamp the intersection to the height of the cone.
-            Real invDdU = ((Real)1) / DdU;
-            Real[2] hInterval;
-            if (DdU >(Real)0)
-            {
-                hInterval[0] = -DdPmV * invDdU;
-                hInterval[1] = (cone.height - DdPmV) * invDdU;
+            // Ignore intersections outside (cap,height)
+            if (result.type > 0) {
+                Real3 p0 = lineOrigin + result.parameter[0] * lineDirection;
+                Real3 p1 = lineOrigin + result.parameter[1] * lineDirection;
+                Real d0 = calcPointPlaneDistance(p0, cone.ray.origin, cone.ray.direction);
+                Real d1 = calcPointPlaneDistance(p1, cone.ray.origin, cone.ray.direction);
+                bool p0outside = (d0 <= cone.cap || d0 >= cone.height);
+                bool p1outside = (d1 <= cone.cap || d1 >= cone.height);
+                if (p0outside && p1outside) result.type = 0;
+                else if (p0outside) result.parameter[0] = result.parameter[1];
+                else if (p1outside) result.parameter[1] = result.parameter[0];
             }
-            else // (DdU < (Real)0)
-            {
-                hInterval[0] = (cone.height - DdPmV) * invDdU;
-                hInterval[1] = -DdPmV * invDdU;
-            }
-
-            IntervalIntervalResult iiResult = findIntersectionIntervalInterval(result.parameter, hInterval);
-            result.intersect = (iiResult.numIntersections > 0);
-            result.type = iiResult.numIntersections;
-            result.parameter = iiResult.overlap;
         }
-        else if (result.intersect)
+        else if (result.type > 0)
         {
-            if (DdPmV > cone.height)
+            if (DdPmV > cone.height || DdPmV < cone.cap)
             {
-                result.intersect = false;
                 result.type = 0;
             }
         }
     }
 
-    return result;
+    if (result.type > 0) {
+        return result.parameter[0];
+    } else {
+        return -1.0;
+    }
+}
+
+#define SAMPLES 10
+#define WIDTH 1
+
+/**
+* Return cartesian z value from radial heightfield at cartesian position xy.
+* Also output normal that is oriented in -z direction.
+* Heights are interpreted in -z direction since +z goes down into material.
+*/
+float readRadialHeightfield(Real2 pos, Real3 center, float heightfield[SAMPLES], Real3* outNormal) {
+    float res = (Real)(WIDTH) / (Real)(SAMPLES);
+    // Calc p in heightmap coordinate system
+    Real2 p = pos.xy - center.xy;
+    // Calc radial offset
+    float r = length(p);
+    // Calc array offset using sampling resolution
+    float x = r / res;
+    int i = (int)(x);
+    // Get 2 nearest samples
+    float h0 = heightfield[min(i, SAMPLES-1)];
+    float h1 = heightfield[min(i+1, SAMPLES-1)];
+    // Calc distances from the 2 samples
+    float fl = 0.0; float f = fract(x, &fl); float rf = 1.0f-f;
+    // Calc gradient from p1 to p0,
+    // so that p0 lies on the nearest sample towards center
+    // and p1 lies on the next outer sample
+    Real2 p0 = (Real2)(0, 0);
+    Real2 p1 = (Real2)(res, 0);
+    if (x > 0.0) {
+        p0 = p*(1.0f-f/x);
+        p1 = p*(1.0f+rf/x);
+    }
+    Real3 gradient = normalize((Real3)(p0, -h0) - (Real3)(p1, -h1));
+    // Calc clockwise tangent
+    Real3 tangent = normalize((Real3)(p.y, -p.x, 0));
+    // Calc normal from gradient and tangent
+    // note: cross(a,b) forms right-handed system, where a==thumb
+    // then translate normal back into cartesian coordinates
+    *outNormal = normalize(cross(tangent, gradient) + center);
+    // Linear interpolation
+    return center.z - mix(h0, h1, f);
+}
+
+/**
+* Find intersection of line with radial heightfield (inaccurate)
+*/
+float intersectHeightfield1(Real3 pos, Real3 dir, float len, Real3 center, float heightfield[SAMPLES], Real3* outNormal) {
+    // Coarse raymarching search
+    float D = min(0.02f, len);
+    Real3 p = pos;
+    float lastDz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
+    float d = D;
+    Real3 ds = D * dir;
+    while (d <= len) {
+        p += ds;
+        float dz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
+        // Detect sign change
+        if ((lastDz > 0.0 && dz < 0.0) || (lastDz < 0.0 && dz > 0.0)) {
+            // if ray came from +z, i.e. (dz < 0), normal will point down
+            if (dz < 0.0) *outNormal *= -1.0f;
+            // Path to intersection
+            return d;
+        }
+        lastDz = dz;
+        d += D;
+    }
+    return -1.f;
+}
+
+/**
+* Construct the cone at given radius of the radial heightfield
+*/
+Cone3 getConeAt(float radius, Real3 center, float heightfield[SAMPLES]) {
+    float res = (Real)(WIDTH) / (Real)(SAMPLES);
+    // Calc array offset using sampling resolution
+    float x = radius / res;
+    int i = (int)(x);
+    // Get 2 nearest samples
+    float h0 = heightfield[min(i, SAMPLES-1)];
+    float h1 = heightfield[min(i+1, SAMPLES-1)];
+    // Calc distances from the 2 samples
+    float fl = 0.0; float f = fract(x, &fl); float rf = 1.0f-f;
+    // Linear interpolation
+    float h = mix(h0, h1, f);
+    // Apply height in -z direction
+    float z = center.z - h;
+    float z0 = center.z - h0;
+    float z1 = center.z - h1;
+    // Linearly extrapolate z to center
+    float slope = (z1-z0)/res;
+    float b = z - (slope*radius);
+    float coneTip = slope * length(center.xy) + b;
+    // Construct the cone
+    return (Cone3){ (Ray3){ (Real3)(center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) },
+                 /*angle:*/  atan2(res, fabs(h1-h0)), 
+                 /*height:*/ h1==h0 ? (x+rf)*res: max(fabs(coneTip-z0), fabs(coneTip-z1)),
+                 /*cap:*/    h1==h0 ? (x-f)*res : min(fabs(coneTip-z0), fabs(coneTip-z1)) };
+}
+
+/**
+* Find intersection of line with radial heightfield (accurate)
+*/
+float intersectHeightfield2(Real3 pos, Real3 dir, float len, Real3 center, float heightfield[SAMPLES], Real3* outNormal) {
+    // iterate over all cones in the path of the ray and take the first hit
+    float res = (Real)(WIDTH) / (Real)(SAMPLES);
+    float s = 0.0;
+    while (s < len) {
+        Real3 p = pos + s * dir;
+        Cone3 cone = getConeAt(length(p.xy - center.xy), center, heightfield);
+        Real t = intersectCone(pos, dir, cone);
+        if (t > 0) {
+            
+            //TODO get normal
+            
+            return t;
+        }
+        s += res;
+    }
+    return -1.f;
 }

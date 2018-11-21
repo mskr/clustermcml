@@ -300,11 +300,12 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 		readCLSourceCode(kernelfile, &src_, &len);
 	}
 	broadcastCLSourceCode(&src_, &len);
-	char compilationErrors[4096*4];
+	char compilationErrors[16384];
 	compilationErrors[0] = '\0';
-	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 4096*4);
+	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 16384);
 	if (rank_ == 0) {
 		if (compilationErrors[0] != '\0') {
+			out << "CL Errors (if you don't see any increase array size and recompile):\n";
 			out << compilationErrors << '\n' << Log::flush;
 			MPI(Abort, MPI_COMM_WORLD, 1);
 		}
