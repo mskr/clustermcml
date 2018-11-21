@@ -1,8 +1,6 @@
 #define Real float
 #define Real3 float3
 #define Real2 float2
-#undef INFINITY
-#define INFINITY 3.402823e+38
 
 
 /**
@@ -425,3 +423,8 @@ float intersectHeightfield2(Real3 pos, Real3 dir, float len, Real3 center, float
     }
     return -1.f;
 }
+
+
+#undef Real
+#undef Real3
+#undef Real2

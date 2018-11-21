@@ -26,6 +26,8 @@
 #include "Layer.h"
 #include "PhotonTracker.h"
 
+#include "intersectCone.c"
+
 #define BoundaryArray __global struct Boundary*
 #define LayerArray __global struct Layer*
 #define Weight ulong
@@ -33,85 +35,6 @@
 
 #undef PI
 #define PI 3.14159265359f
-
-/**
-* return path length to ray-plane intersection
-*/
-float intersectPlane(float3 pos, float3 dir, float3 point, float3 normal) {
-	float a = dot((point - pos), normal);
-	if (a > -1e-6f) return INFINITY; // behind plane
-	float b = dot(dir, normal);
-	if (b > -1e-6f) return INFINITY; // facing away
-	float pathLenToIntersection = a / b;
-	return pathLenToIntersection;
-}
-
-/**
-* Return cartesian z value from radial heightfield at cartesian position xy.
-* Also output normal that is oriented in -z direction.
-* Heights are interpreted in -z direction since +z goes down into material.
-*/
-float readRadialHeightfield(float2 pos, float3 center, __global float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
-	float res = (float)BOUNDARY_WIDTH / (float)BOUNDARY_SAMPLES;
-	// Calc p in heightmap coordinate system
-	float2 p = pos.xy - center.xy;
-	// Calc radial offset
-	float r = length(p);
-	// Calc array offset using sampling resolution
-	float x = r / res;
-	int i = (int)x;
-	// Get 2 nearest samples
-	float h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
-	float h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
-	// Calc distances from the 2 samples
-	float fl; float f = fract(x, &fl); float rf = 1.0f-f;
-	// Calc gradient from p1 to p0,
-	// so that p0 lies on the nearest sample towards center
-	// and p1 lies on the next outer sample
-	float2 p0 = (float2)(0, 0);
-	float2 p1 = (float2)(res, 0);
-	if (x > 0) {
-		p0 = p*(1.0f-f/x);
-		p1 = p*(1.0f+rf/x);
-	}
-	float3 gradient = normalize((float3)(p0, -h0) - (float3)(p1, -h1));
-	// Calc clockwise tangent
-	float3 tangent = normalize((float3)(p.y, -p.x, 0));
-	// Calc normal from gradient and tangent
-	// note: cross(a,b) forms right-handed system, where a==thumb
-	// then translate normal back into cartesian coordinates
-	*outNormal = normalize(cross(tangent, gradient) + center);
-	// Linear interpolation
-	return center.z - mix(h0, h1, f);
-}
-
-/**
-* find intersection of line with radial heightfield
-*/
-float intersectHeightfield(float3 pos, float3 dir, float len, float3 center, __global float heightfield[BOUNDARY_SAMPLES], float3* outNormal) {
-	// Coarse raymarching search
-	float D = min(0.00001f, len);
-	float3 p = pos;
-	float lastDz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
-	float d = D;
-	float3 ds = D * dir;
-	while (d <= len) {
-		p += ds;
-		float dz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
-		// Detect sign change
-		if ((lastDz > 0 && dz < 0) || (lastDz < 0 && dz > 0)) {
-			// if ray came from +z, i.e. (dz < 0), normal will point down
-			if (dz < 0) *outNormal *= -1.0f;
-			// Path to intersection
-			return d;
-		}
-		lastDz = dz;
-		d += D;
-	}
-	return -1.f;
-}
-
-//TODO try exact heightfield intersection using intermediate planes, like Maisch pointed out
 
 /**
 * return cos of angle, which is
@@ -182,12 +105,12 @@ bool roulette(uint* rng_state, float* photonWeight) {
 */
 int detectBoundaryCollision(int currentLayer, float3 pos, float3 dir, float s, BoundaryArray boundaries, float3* normal, float* pathLenToIntersection) {
 	// Find intersection with top boundary
-	*pathLenToIntersection = intersectHeightfield(pos, dir, s, (float3)(0,0,boundaries[currentLayer].z), boundaries[currentLayer].heightfield, normal);
+	*pathLenToIntersection = intersectHeightfield2(pos, dir, s, (float3)(0,0,boundaries[currentLayer].z), boundaries[currentLayer].heightfield, normal);
 	if (*pathLenToIntersection >= 0) {
 		return -1;
 	}
 	// Find intersection with bottom boundary
-	*pathLenToIntersection = intersectHeightfield(pos, dir, s,(float3)(0,0,boundaries[currentLayer+1].z), boundaries[currentLayer+1].heightfield, normal);
+	*pathLenToIntersection = intersectHeightfield2(pos, dir, s,(float3)(0,0,boundaries[currentLayer+1].z), boundaries[currentLayer+1].heightfield, normal);
 	if (*pathLenToIntersection >= 0) {
 		return 1;
 	}
@@ -211,7 +134,7 @@ WeightArray R_ra, WeightArray T_ra) {
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(R_ra, Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&CLMEM_ACCESS_ARRAY2D(R_ra, __global Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		// photon is terminated
 		*photonWeight = 0;
 		return true;
@@ -223,7 +146,7 @@ WeightArray R_ra, WeightArray T_ra) {
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(T_ra, Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		*photonWeight = 0;
 		return true;
 	}
@@ -411,7 +334,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 				float r = length(pos.xy);
 				int r_i = (int)floor(r / delta_r);
 				r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
-				add(&CLMEM_ACCESS_ARRAY2D(A_rz, Weight, size_r, z_i, r_i), (uint)(dW * 0xFFFFFFFF));
+				add(&CLMEM_ACCESS_ARRAY2D(A_rz, __global Weight, size_r, z_i, r_i), (uint)(dW * 0xFFFFFFFF));
 			}
 			#endif
 
