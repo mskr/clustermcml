@@ -2,7 +2,10 @@
 
 Implementation of MCML in MPI and OpenCL.
 
-
+(Planned) extensions to original MCML are:
+- Non-flat boundary shapes
+- Dwivedi sampling
+- Reflection BRDFs
 
 ## Build
 
