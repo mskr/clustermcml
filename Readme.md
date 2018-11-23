@@ -89,6 +89,9 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 - Try quasirandom Monte Carlo (blue noise instead of true random)
     - http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 
+- OpenCL 2.0: [work_group_reduce](https://www.khronos.org/registry/OpenCL/sdk/2.0/docs/man/xhtml/work_group_reduce.html)
+instead of atomics may help to speed up binning
+
 ## Project Modules
 
 ### clusterlib
