@@ -1,5 +1,8 @@
+#include <assert.h>
 #include <windows.h>
 #include "glad.h"
+#include "glad_wgl.h"
+
 #include <iostream>
 #include <string>
 #include <thread>
@@ -39,6 +42,9 @@ static std::string fragmentShaderSourceTmp;
 static bool running = true;
 static bool inputThreadFlag = false;
 
+/**
+*
+*/
 static bool compileGLShader(std::string vertSrc, std::string fragSrc, GLuint* outVertexShader, GLuint* outFragmentShader) {
 	const auto vertStr = vertSrc.c_str();
 	const auto fragStr = fragSrc.c_str();
@@ -63,6 +69,9 @@ static bool compileGLShader(std::string vertSrc, std::string fragSrc, GLuint* ou
 	return true;
 }
 
+/**
+*
+*/
 static void runGLShader() {
 	glBindVertexArray(vao);
 	glUseProgram(shaderProgram);
@@ -71,6 +80,9 @@ static void runGLShader() {
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
+/**
+*
+*/
 static LRESULT CALLBACK onWindowMessage(
 	HWND windowHandle,
 	UINT uMsg,        // message identifier
@@ -115,6 +127,9 @@ static LRESULT CALLBACK onWindowMessage(
 	return 0; 
 }
 
+/**
+*
+*/
 static int runWindowsMessageLoop() {
 	// https://en.wikipedia.org/wiki/Message_loop_in_Microsoft_Windows
 	MSG msg;
@@ -166,6 +181,9 @@ static int runWindowsMessageLoop() {
 	return msg.wParam; // exit code from PostQuitMessage
 }
 
+/**
+*
+*/
 static void createWindowsWindow(const char* title, int w, int h, HWND* outWindowHandle) {
 	// Handle of exe or dll, depending on where call happens
 	HINSTANCE moduleHandle = (HINSTANCE)GetModuleHandle(NULL);
@@ -214,6 +232,117 @@ static void createWindowsWindow(const char* title, int w, int h, HWND* outWindow
 	*outWindowHandle = windowHandle;
 }
 
+/**
+*
+*/
+typedef HGLRC (__stdcall * PFNWGLCREATECONTEXTATTRIBSARB) (HDC hDC, HGLRC hShareContext, const int *attribList);
+typedef BOOL (__stdcall * PFNWGLCHOOSEPIXELFORMATARBPROC)(HDC hdc, const int * piAttribIList, const FLOAT * pfAttribFList, UINT nMaxFormats, int * piFormats, UINT * nNumFormats);
+
+/**
+*
+*/
+static HWND createDummyWindow() {
+	DWORD windowExStyle, windowStyle;
+
+	WNDCLASS	wc;						// Windows Class Structure
+	RECT		WindowRect;				// Grabs Rectangle Upper Left / Lower Right Values
+	WindowRect.left = 0L;
+	WindowRect.right = 640L;
+	WindowRect.top = 0L;
+	WindowRect.bottom = 480L;
+
+	HINSTANCE instance	= ::GetModuleHandle( NULL );				// Grab An Instance For Our Window
+	wc.style			= CS_HREDRAW | CS_VREDRAW | CS_OWNDC;	// Redraw On Size, And Own DC For Window.
+	wc.lpfnWndProc		= DefWindowProc;						// WndProc Handles Messages
+	wc.cbClsExtra		= 0;									// No Extra Window Data
+	wc.cbWndExtra		= 0;									// No Extra Window Data
+	wc.hInstance		= instance;
+	wc.hIcon			= ::LoadIcon( NULL, IDI_WINLOGO );		// Load The Default Icon
+	wc.hCursor			= ::LoadCursor( NULL, IDC_ARROW );		// Load The Arrow Pointer
+	wc.hbrBackground	= NULL;									// No Background Required For GL
+	wc.lpszMenuName		= NULL;									// We Don't Want A Menu
+	wc.lpszClassName	= TEXT("FLINTTEMP");
+
+	if( ! ::RegisterClass( &wc ) ) {											// Attempt To Register The Window Class
+		DWORD err = ::GetLastError();
+		return 0;											
+	}
+	windowExStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE | WS_EX_ACCEPTFILES;		// Window Extended Style
+	windowStyle = ( WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME );
+
+	::AdjustWindowRectEx( &WindowRect, windowStyle, FALSE, windowExStyle );
+
+	return ::CreateWindowEx( windowExStyle, TEXT("FLINTTEMP"), TEXT("FLINT"), windowStyle, 0, 0, WindowRect.right-WindowRect.left, WindowRect.bottom-WindowRect.top, NULL, NULL, instance, 0 );
+}
+
+/**
+*
+*/
+static bool getWglFunctionPointers( PFNWGLCREATECONTEXTATTRIBSARB *resultCreateContextAttribsFnPtr, PFNWGLCHOOSEPIXELFORMATARBPROC *resultChoosePixelFormatFnPtr ) {
+	static PFNWGLCREATECONTEXTATTRIBSARB cachedCreateContextAttribsFnPtr = nullptr;
+	static PFNWGLCHOOSEPIXELFORMATARBPROC cachedChoosePixelFormatFnPtr = nullptr;
+	if( ! cachedCreateContextAttribsFnPtr || ! cachedChoosePixelFormatFnPtr ) {
+		static PIXELFORMATDESCRIPTOR pfd = {
+			sizeof(PIXELFORMATDESCRIPTOR),				// Size Of This Pixel Format Descriptor
+			1,											// Version Number
+			PFD_DRAW_TO_WINDOW |						// Format Must Support Window
+			PFD_SUPPORT_OPENGL |						// Format Must Support OpenGL
+			PFD_DOUBLEBUFFER,							// Must Support Double Buffering
+			PFD_TYPE_RGBA,								// Request An RGBA Format
+			32,											// Select Our Color Depth
+			0, 0, 0, 0, 0, 0,							// Color Bits Ignored
+			0,											// No Alpha Buffer
+			0,											// Shift Bit Ignored
+			0,											// No Accumulation Buffer
+			0, 0, 0, 0,									// Accumulation Bits Ignored
+			16,											// depth bits
+			0,											// stencil bits
+			0,											// No Auxiliary Buffer
+			PFD_MAIN_PLANE,								// Main Drawing Layer
+			0,											// Reserved
+			0, 0, 0										// Layer Masks Ignored
+		};
+
+		HWND tempWindow = createDummyWindow();
+		HDC tempDc = ::GetDC( tempWindow );
+		auto pixelFormat = ::ChoosePixelFormat( tempDc, &pfd );
+		if( pixelFormat == 0 ) {
+			::ReleaseDC( tempWindow, tempDc );
+			::DestroyWindow( tempWindow );
+			::UnregisterClass( TEXT("FLINTTEMP"), ::GetModuleHandle( NULL ) );
+			return false;
+		}
+		::SetPixelFormat( tempDc, pixelFormat, &pfd );
+		auto tempCtx = ::wglCreateContext( tempDc ); 
+		::wglMakeCurrent( tempDc, tempCtx );
+
+		cachedCreateContextAttribsFnPtr = (PFNWGLCREATECONTEXTATTRIBSARB) ::wglGetProcAddress( "wglCreateContextAttribsARB" );
+		cachedChoosePixelFormatFnPtr = (PFNWGLCHOOSEPIXELFORMATARBPROC) ::wglGetProcAddress( "wglChoosePixelFormatARB" );
+		*resultCreateContextAttribsFnPtr = cachedCreateContextAttribsFnPtr;
+		*resultChoosePixelFormatFnPtr = cachedChoosePixelFormatFnPtr;
+		::wglMakeCurrent( NULL, NULL );
+		::wglDeleteContext( tempCtx );
+
+		::ReleaseDC( tempWindow, tempDc );
+		::DestroyWindow( tempWindow );
+		::UnregisterClass( TEXT("FLINTTEMP"), ::GetModuleHandle( NULL ) );
+
+		if( ! cachedCreateContextAttribsFnPtr || ! cachedChoosePixelFormatFnPtr ) {
+			return false;
+		}
+		else
+			return true;
+	}
+	else {
+		*resultCreateContextAttribsFnPtr = cachedCreateContextAttribsFnPtr;
+		*resultChoosePixelFormatFnPtr = cachedChoosePixelFormatFnPtr;
+		return cachedCreateContextAttribsFnPtr && cachedChoosePixelFormatFnPtr;
+	}
+}
+
+/**
+*
+*/
 static void createGLContext(HDC deviceContext, HGLRC* outGLContext) {
 	// https://www.khronos.org/opengl/wiki/Creating_an_OpenGL_Context_(WGL)
 	PIXELFORMATDESCRIPTOR pfd = {
@@ -236,18 +365,35 @@ static void createGLContext(HDC deviceContext, HGLRC* outGLContext) {
 	};
 	int pixelFormat = ChoosePixelFormat(deviceContext, &pfd);
 	SetPixelFormat(deviceContext, pixelFormat, &pfd);
-	HGLRC glContext = wglCreateContext(deviceContext);
-	// better create context with
+
 	// https://www.khronos.org/registry/OpenGL/extensions/ARB/WGL_ARB_create_context.txt
+	PFNWGLCREATECONTEXTATTRIBSARB wglCreateContextAttribsARBPtr = NULL;
+	PFNWGLCHOOSEPIXELFORMATARBPROC wglChoosePixelFormatARBPtr = NULL;
+	assert( getWglFunctionPointers( &wglCreateContextAttribsARBPtr, &wglChoosePixelFormatARBPtr ) );
+	int attribList[] = {
+		WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
+		WGL_CONTEXT_MINOR_VERSION_ARB, 0,
+		WGL_CONTEXT_FLAGS_ARB, 0,
+		WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+		0, 0
+	};
+	HGLRC glContext = wglCreateContextAttribsARBPtr(deviceContext, 0, attribList);
+
 	wglMakeCurrent(deviceContext, glContext);
 	*outGLContext = glContext;
 }
 
+/**
+*
+*/
 static void loadGLFunctions() {
 	gladLoadGL();
 	// wglGetProcAddress();
 }
 
+/**
+*
+*/
 static void createGLQuadVAO(GLuint* outVAO) {
 	float quad[] = {
 		// (x, y)
@@ -272,6 +418,9 @@ static void createGLQuadVAO(GLuint* outVAO) {
 	*outVAO = id;
 }
 
+/**
+*
+*/
 static void runReadPrintLoop() {
 	std::cout << "[:::::: FRAGMENT SHADER EDITOR ::::::]" << std::endl;
 	std::cout << glslVersionString + glslUniformStrings + fragmentShaderSource;
@@ -316,18 +465,26 @@ static void runReadPrintLoop() {
 
 // public:
 
-void createGLContexts(void* outDeviceContext, void* outRenderContext) {
+/**
+*
+*/
+void createGLContexts(void* outDeviceContext = 0, void* outRenderContext = 0) {
 	createWindowsWindow("Shader Output", width, height, &windowHandle);
 	gdiDeviceContext = GetDC(windowHandle);
 	createGLContext(gdiDeviceContext, &glRenderContext);
-	*((HDC*)outDeviceContext) = gdiDeviceContext;
-	*((HGLRC*)outRenderContext) = glRenderContext;
+	if (outDeviceContext && outRenderContext) {
+		*((HDC*)outDeviceContext) = gdiDeviceContext;
+		*((HGLRC*)outRenderContext) = glRenderContext;
+	}
 
 	loadGLFunctions();
 
 	createGLQuadVAO(&vao);
 }
 
+/**
+*
+*/
 void createGLBuffer(size_t size, void* outBuffer) {
 	static GLuint bindingPoint = 0; // assignemt happens once at program start, then value persists
 
@@ -365,6 +522,34 @@ void createGLBuffer(size_t size, void* outBuffer) {
 	//TODO buffer cleanup at end of render loop
 }
 
+/**
+*
+*/
+void createGLImage(size_t w, size_t h, void* outImageHandle, void* data = 0) {
+	static int i = 0;
+	glslUniformStrings += "layout(location = 0) uniform sampler2D img" + std::to_string(i) + ";\n";
+	fragmentShaderSource += "  color = texture(img" + std::to_string(i) + ", p);\n";
+	std::string shaderSource = glslVersionString + glslUniformStrings + fragmentShaderSource;
+	compileGLShader(vertexShaderSource, shaderSource + "}", &vertexShader, &fragmentShader);
+	shaderProgram = glCreateProgram();
+	glAttachShader(shaderProgram, fragmentShader);
+	glAttachShader(shaderProgram, vertexShader);
+	glLinkProgram(shaderProgram);
+
+	i++;
+
+	GLuint tex;
+	glGenTextures(1, &tex),
+	glBindTexture(GL_TEXTURE_2D, tex);
+
+	// Use GL_R32_F as internal format (i.e. GL_RED as general format) because only greyscale needed
+	glTexImage2D(GL_TEXTURE_2D, 0/*mip*/, GL_R32F, w, h, 0, GL_RED, GL_FLOAT, (GLvoid*)data);
+	*((GLuint*)outImageHandle) = tex;
+}
+
+/**
+*
+*/
 void runGLRenderLoop() {
 	ShowWindow(windowHandle, SW_SHOWNORMAL);
 	UpdateWindow(windowHandle);
