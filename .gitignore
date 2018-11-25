@@ -1,0 +1,8 @@
+*.exe 
+*.o 
+*.preprocessed.c*
+*.c.cpp 
+*.bin.* 
+*.pdb 
+*.ilk
+.vs

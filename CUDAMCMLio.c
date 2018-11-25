@@ -13,13 +13,6 @@
     You should have received a copy of the GNU General Public License
     along with CUDAMCML.  If not, see <http://www.gnu.org/licenses/>.*/
 
-#define PI 3.14159265359
-
-#define STR_LEN 200
-
-#define NFLOATS 5
-#define NINTS 5
-
 #include <stdio.h>
 #include <math.h>
 #include <limits.h>
@@ -28,42 +21,7 @@
 #include <string.h>
 #include <time.h>
 
-// TYPEDEFS
-typedef struct 
-{
-	float z_min;		// Layer z_min [cm]
-	float z_max;		// Layer z_max [cm]
-	float mutr;			// Reciprocal mu_total [cm]
-	float mua;			// Absorption coefficient [1/cm]
-	float g;			// Anisotropy factor [-]
-	float n;			// Refractive index [-]
-}LayerStruct;
-
-typedef struct 
-{
-	float dr;		// Detection grid resolution, r-direction [cm]
-	float dz;		// Detection grid resolution, z-direction [cm]
-	
-	int na;			// Number of grid elements in angular-direction [-]
-	int nr;			// Number of grid elements in r-direction
-	int nz;			// Number of grid elements in z-direction
-
-}DetStruct;
-
-
-typedef struct 
-{
-	unsigned long number_of_photons;
-	int ignoreAdetection;
-	unsigned int n_layers;
-	unsigned int start_weight;
-	char outp_filename[STR_LEN];
-	char inp_filename[STR_LEN];
-	long begin,end;
-	char AorB;
-	DetStruct det;
-	LayerStruct* layers;
-}SimulationStruct;
+#include "CUDAMCML.h"
 
 int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
 {
