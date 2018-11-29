@@ -10,6 +10,8 @@ void createGLBuffer(size_t size, void* outBuffer);
 // Here we map the same handles to host pointers
 static std::map<cl_mem, void*> map;
 
+//TODO define a SAFE_MODE, where we keep a second map with array sizes, so we can crash the program with an error message before buffer overruns happen
+
 // If no CL is present we use a simple counter as handle
 #ifdef NO_GPU
 static int handle = 0;
