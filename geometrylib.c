@@ -419,10 +419,12 @@ Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[SAMPLES], Real3* outNo
     Real b = z - (slope*r);
     Real coneTip = slope * length(center.xy) + b;
     // Construct the cone
-    return (Cone3){ (Ray3){ (Real3)(center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) },
-                 /*angle:*/  atan2(res, fabs(h1-h0)), 
-                 /*height:*/ h1==h0 ? (x+rf)*res: max(fabs(coneTip-z0), fabs(coneTip-z1)),
-                 /*cap:*/    h1==h0 ? (x-f)*res : min(fabs(coneTip-z0), fabs(coneTip-z1)) };
+    Ray3 mainAxis = { (Real3)(center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
+    Cone3 theCone = { mainAxis,
+         /*angle:*/  atan2(res, fabs(h1-h0)), 
+         /*height:*/ h1==h0 ? (x+rf)*res: max(fabs(coneTip-z0), fabs(coneTip-z1)),
+         /*cap:*/    h1==h0 ? (x-f)*res : min(fabs(coneTip-z0), fabs(coneTip-z1)) };
+    return theCone;
 }
 
 /**
