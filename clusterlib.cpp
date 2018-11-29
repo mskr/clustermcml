@@ -326,9 +326,9 @@ size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
 	// 
 	//                                              | ATI Radeon 5850   | Intel Graphics 4600   | NVIDIA GTX 1080   |
 	// --------------------------------------------------------------------------------------------------------------
-	// CL_DEVICE_MAX_COMPUTE_UNITS                  | 18                |
-	// CL_DEVICE_MAX_WORK_GROUP_SIZE                | 256               |
-	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE | 64                |
+	// CL_DEVICE_MAX_COMPUTE_UNITS                  | 18                |                       | 20
+	// CL_DEVICE_MAX_WORK_GROUP_SIZE                | 256               |                       | 1024
+	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE | 64                |                       | 32
 	*****************************************************************************************************************/
 	cl_kernel kernel = CLCREATE(Kernel, program_, getCLKernelName());
 	size_t warpSize;
