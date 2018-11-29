@@ -280,17 +280,22 @@ static void initPhotonStates(size_t totalThreadCount, float R_specular) {
 
 
 static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThreadCount, uint32_t* outFinishCount, float R_specular) {
-	// Check for finished photons
 	for (int i = 0; i < totalThreadCount; i++) {
+
+		// Check for finished photons
 		if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0
 		&& !CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead)) {
+
 			(*outFinishCount)++;
+
 			// Launch new only if next round cannot overachieve
 			if ((*outFinishCount) + totalThreadCount <= processPhotonCount) {
+
 				PhotonTracker newState = createNewPhotonTracker();
 				newState.weight -= R_specular;
 				newState.rngState = wang_hash((*outFinishCount) + totalThreadCount);
 				CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+
 			} else {
 				CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead) = 1;
 			}
@@ -329,12 +334,15 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 static void simulate(cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, 
 uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl_event kernelEvent) {
 
+	assert(photonCount >= totalThreadCount, "Use more photons!");
+
 	size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonTracker);
 
 	// Run kernel with optimal thread count as long as targeted number of photons allows it
 	//TODO compare perf against CUDAMCML, which does not wait for longest simulating thread,
 	// but instead launches a new photon directly from a thread that would terminate,
 	// causing additional tracking overhead.
+
 	uint32_t finishedPhotonCount = 0;
 	if (rank == 0) out << '\n';
 	while (finishedPhotonCount < photonCount) {
