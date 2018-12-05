@@ -201,6 +201,14 @@ void replaceVectorTypes(std::string& src) {
 	}
 }
 
+void replaceStructInitializers(std::string& src) {
+	//TODO remove the cast-like operator
+	// consider: typedef struct{ int a,b,c; } Dummy;
+	// valid in C/C++:  return { 1,2,3 }
+	// valid in OpenCL: return (Dummy){ 1,2,3 }
+	// valid in both:   Dummy d = { 1,2,3 }
+}
+
 int main(int nargs, char* args[]) {
 	assert(nargs>=2);
 	std::ifstream in(args[1]);
