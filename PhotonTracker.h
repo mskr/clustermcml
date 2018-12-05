@@ -8,6 +8,6 @@ struct PhotonTracker {
 	float dx; float dy; float dz; // dir
 	float weight; // 1 at start, zero when terminated
 	int layerIndex; // current layer
-	unsigned int rngState;
-	unsigned int isDead;
+	unsigned int rngState; // keep rng state to avoid reusing seeds
+	unsigned int isDead; // mark as dead when pipeline contains enough photons
 });
