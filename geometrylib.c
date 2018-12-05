@@ -113,14 +113,15 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
     // We interpret the cone for our use case as a annulus in the xy plane.
     // Cap and height are interpreted as inner and outer radii of the annulus.
     if (cone.ray.direction.x==0.0&&cone.ray.direction.y==0.0&&cone.ray.direction.z==0.0) {
-        t = intersectPlane(lineOrigin, lineDirection, cone.ray.origin, (Real3)(0,0,-sign(lineDirection.z)));
-        Real3 p = lineOrigin + t * lineDirection;
-        Real r = length(p.xy - cone.ray.origin.xy);
-        if (r >= cone.cap && r <= cone.height) {
-            return t;
-        } else {
-            return -1.0;
+        t = intersectPlane(lineOrigin, lineDirection, cone.ray.origin, normalize((Real3)(0,0,-sign(lineDirection.z))));
+        if (t > 0.0) {
+            Real3 p = lineOrigin + t * lineDirection;
+            Real r = length(p.xy - cone.ray.origin.xy);
+            if (r >= cone.cap && r <= cone.height) {
+                return t;
+            }
         }
+        return -1.0;
     }
 
     Real3 PmV = lineOrigin - cone.ray.origin;
@@ -304,16 +305,13 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone) {
     }
 }
 
-#define SAMPLES 10
-#define WIDTH 1
-
 /**
 * Return cartesian z value from radial heightfield at cartesian position xy.
 * Also output normal that is oriented in -z direction.
 * Heights are interpreted in -z direction since +z goes down into material.
 */
-Real readRadialHeightfield(Real2 pos, Real3 center, Real heightfield[SAMPLES], Real3* outNormal) {
-    Real res = (Real)(WIDTH) / (Real)(SAMPLES);
+Real readRadialHeightfield(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
+    Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
     // Calc p in heightmap coordinate system
     Real2 p = pos.xy - center.xy;
     // Calc radial offset
@@ -322,8 +320,8 @@ Real readRadialHeightfield(Real2 pos, Real3 center, Real heightfield[SAMPLES], R
     Real x = r / res;
     int i = (int)(x);
     // Get 2 nearest samples
-    Real h0 = heightfield[min(i, SAMPLES-1)];
-    Real h1 = heightfield[min(i+1, SAMPLES-1)];
+    Real h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
+    Real h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
     // Calc distances from the 2 samples
     Real fl = 0.0; Real f = fract(x, &fl); Real rf = 1.0f-f;
     // Calc gradient from p1 to p0,
@@ -349,7 +347,7 @@ Real readRadialHeightfield(Real2 pos, Real3 center, Real heightfield[SAMPLES], R
 /**
 * Find intersection of line with radial heightfield (inaccurate)
 */
-Real intersectHeightfield1(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[SAMPLES], Real3* outNormal) {
+Real intersectHeightfield1(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
     // Coarse raymarching search
     Real D = min(0.02f, len);
     Real3 p = pos;
@@ -375,8 +373,8 @@ Real intersectHeightfield1(Real3 pos, Real3 dir, Real len, Real3 center, Real he
 /**
 * Construct the cone at given xy position in the radial heightfield
 */
-Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[SAMPLES], Real3* outNormal) {
-    Real res = (Real)(WIDTH) / (Real)(SAMPLES);
+Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
+    Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
     // Calc p in heightmap coordinate system
     Real2 p = pos.xy - center.xy;
     // Calc radial offset
@@ -386,8 +384,8 @@ Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[SAMPLES], Real3* outNo
     int i = (int)(x);
 
     // Get 2 nearest samples
-    Real h0 = heightfield[min(i, SAMPLES-1)];
-    Real h1 = heightfield[min(i+1, SAMPLES-1)];
+    Real h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
+    Real h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
     // Calc distances from the 2 samples
     Real fl = 0.0; Real f = fract(x, &fl); Real rf = 1.0f-f;
 
@@ -430,15 +428,17 @@ Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[SAMPLES], Real3* outNo
 /**
 * Find intersection of line with radial heightfield (accurate)
 */
-Real intersectHeightfield2(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[SAMPLES], Real3* outNormal) {
+Real intersectHeightfield2(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
     // iterate over all cones in the path of the ray and take the first hit
-    Real res = (Real)(WIDTH) / (Real)(SAMPLES);
+    Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
     Real s = 0.0;
-    while (s < len) {
+    while (s-res < len) { // always test one more cone
+        //TODO this scheme does not work: res has no meaning when applied along the ray, but only when applied towards center
+        // therefore we need to find the point on the ray with minimal distance from center and then test all cones between this points and start and end
         Real3 p = pos + s * dir;
         Cone3 cone = getConeAt(p.xy, center, heightfield, outNormal);
         Real t = intersectCone(pos, dir, cone);
-        if (t > 0) {
+        if (t > 0 && t <= len) {
             // Always want normal to face the ray for correct reflection calculation
             if (dot(*outNormal, dir) < 0.0) *outNormal *= 1.0f;
             return t;
