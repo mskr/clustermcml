@@ -12,8 +12,8 @@
 
 # Windows runtime (see [4], [5] and [6] for automating this)
 MSVC = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\bin\Hostx86\x86"
-MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\include"
-MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\ucrt"
+MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\include" # STL
+MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\ucrt" # crtdefs.h
 MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\um"
 MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\shared"
 MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128/lib/x86"
@@ -49,7 +49,7 @@ clustermcml-windows.exe: main-windows.o runMCML-windows.o clusterlib-windows.o r
 
 # Compile new object
 main-windows.o: main.preprocessed.cpp
-	$(MSVC)/cl main.preprocessed.cpp /c /Wall /Fo"main-windows.o" # Warnings are errors
+	$(MSVC)/cl main.preprocessed.cpp /c /W3 /Fo"main-windows.o" # Warnings are errors
 
 # Preprocess source
 main.preprocessed.cpp: main.cpp clusterlib.h clmem.h
@@ -62,7 +62,7 @@ main.preprocessed.cpp: main.cpp clusterlib.h clmem.h
 
 # Compile the code that should setup and run the CL kernel
 runMCML-windows.o: runMCML.preprocessed.cpp
-	$(MSVC)/cl runMCML.preprocessed.cpp /c /Wall /Fo"runMCML-windows.o"
+	$(MSVC)/cl runMCML.preprocessed.cpp /c /W3 /Fo"runMCML-windows.o"
 
 runMCML.preprocessed.cpp: runMCML.cpp CUDAMCML.h CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
 	$(MSVC)/cl runMCML.cpp /c \
@@ -74,7 +74,7 @@ runMCML.preprocessed.cpp: runMCML.cpp CUDAMCML.h CUDAMCMLio.c randomlib.h Bounda
 
 # Compile own libs
 clusterlib-windows.o: clusterlib.preprocessed.cpp
-	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Wall /Fo"clusterlib-windows.o"
+	$(MSVC)/cl clusterlib.preprocessed.cpp /c /W3 /Fo"clusterlib-windows.o"
 
 clusterlib.preprocessed.cpp: clusterlib.cpp
 	$(MSVC)/cl clusterlib.cpp /c \
@@ -85,7 +85,7 @@ clusterlib.preprocessed.cpp: clusterlib.cpp
 		/P /Fi"clusterlib.preprocessed.cpp"
 
 randomlib-windows.o: randomlib.preprocessed.c
-	$(MSVC)/cl randomlib.preprocessed.c /c /Wall /Fo"randomlib-windows.o"
+	$(MSVC)/cl randomlib.preprocessed.c /c /W3 /Fo"randomlib-windows.o"
 
 randomlib.preprocessed.c: randomlib.c
 	$(MSVC)/cl randomlib.c /c \
@@ -95,7 +95,7 @@ randomlib.preprocessed.c: randomlib.c
 		/P /Fi"randomlib.preprocessed.c"
 
 clmem-windows.o: clmem.preprocessed.cpp
-	$(MSVC)/cl clmem.preprocessed.cpp /c /Wall /Fo"clmem-windows.o"
+	$(MSVC)/cl clmem.preprocessed.cpp /c /W3 /Fo"clmem-windows.o"
 
 clmem.preprocessed.cpp: clmem.cpp
 	$(MSVC)/cl clmem.cpp /c \
@@ -110,48 +110,60 @@ clmem.preprocessed.cpp: clmem.cpp
 # Windows "No GPU" build, with debug information
 ################################################################################
 
-cpumcml-windows.exe: cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o cpumcml-clmem-windows.o
-	$(MSVC)/link cpumcml-main-windows.o cpumcml-runMCML-windows.o cpumcml-kernel-windows.o randomlib-windows.o cpumcml-clmem-windows.o /DEBUG \
+# Exclude OpenCL as well as MPI
+mcml-nogpu-windows.exe: mcml-nogpu-main-windows.o mcml-nogpu-runMCML-windows.o mcml-nogpu-kernel-windows.o randomlib-windows.o mcml-nogpu-clmem-windows.o
+	$(MSVC)/link mcml-nogpu-main-windows.o mcml-nogpu-runMCML-windows.o mcml-nogpu-kernel-windows.o randomlib-windows.o mcml-nogpu-clmem-windows.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
-		/OUT:"cpumcml-windows.exe"
+		/OUT:"mcml-nogpu-windows.exe"
 
-# Spare the extra preprocessed files here and compile straight from cpp to object
-cpumcml-main-windows.o: main.cpp clmem.h
-	$(MSVC)/cl main.cpp /c /Zi /Wall \
+# Compile straight from cpp to object
+# Main
+mcml-nogpu-main-windows.o: main.cpp clmem.h
+	$(MSVC)/cl main.cpp /c /Zi /W3 \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"cpumcml-main-windows.o"
+		/c /Fo"mcml-nogpu-main-windows.o"
 
-cpumcml-clmem-windows.o: clmem.cpp
-	$(MSVC)/cl clmem.cpp /c /Zi /Wall \
+# CLMEM
+mcml-nogpu-clmem-windows.o: clmem.cpp
+	$(MSVC)/cl clmem.cpp /c /Zi /W3 \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"cpumcml-clmem-windows.o"
+		/c /Fo"mcml-nogpu-clmem-windows.o"
 
-cpumcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
-	$(MSVC)/cl runMCML.cpp /c /Zi /Wall \
+# RunMCML
+mcml-nogpu-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
+	$(MSVC)/cl runMCML.cpp /c /Zi /W3 \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"cpumcml-runMCML-windows.o"
+		/c /Fo"mcml-nogpu-runMCML-windows.o"
 
-cpumcml-kernel-windows.o: mcmlKernel.c.preprocessed.cpp
-	$(MSVC)/cl mcmlKernel.c.preprocessed.cpp /c /Zi /Wall /Fo"cpumcml-kernel-windows.o"
+# Kernel
+# 4. Now we can compile the kernel as C++
+mcml-nogpu-kernel-windows.o: mcmlKernel.preprocessed.c.cpp
+	$(MSVC)/cl mcmlKernel.preprocessed.c.cpp /c /Zi /W3 \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/Fo"mcml-nogpu-kernel-windows.o"
 
-mcmlKernel.c.preprocessed.cpp: mcmlKernel.c.cpp Boundary.h Layer.h PhotonTracker.h randomlib.h
-	$(MSVC)/cl mcmlKernel.c.cpp /c \
+# 3. Transpile the preprocessed kernel
+mcmlKernel.preprocessed.c.cpp: mcmlKernel.preprocessed.c cl2cpp.exe
+	cl2cpp mcmlKernel.preprocessed.c -v
+
+# 2. Preprocess kernel file to resolve includes
+mcmlKernel.preprocessed.c: mcmlKernel.c Boundary.h Layer.h PhotonTracker.h randomlib.h geometrylib.c clmem.h classert.h
+	$(MSVC)/cl mcmlKernel.c /c \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/P /Fi"mcmlKernel.c.preprocessed.cpp"
+		/P /Fi"mcmlKernel.preprocessed.c"
 
-mcmlKernel.c.cpp: mcmlKernel.c cl2cpp.exe
-	cl2cpp mcmlKernel.c -v
-
+# 1. Make our transpiler if not present
 cl2cpp.exe: cl2cpp.o
 	$(MSVC)/link cl2cpp.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
@@ -160,7 +172,7 @@ cl2cpp.exe: cl2cpp.o
 		/OUT:"cl2cpp.exe"
 
 cl2cpp.o: cl2cpp.cpp
-	$(MSVC)/cl cl2cpp.cpp /c /Zi /Wall \
+	$(MSVC)/cl cl2cpp.cpp /c /Zi /W3 \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"cl2cpp.o"
@@ -183,15 +195,15 @@ clustermcml-windows-debug.exe: main-windows-debug.o runMCML-windows-debug.o clus
 # Compile new object and generate debug database in separate file
 # (see [8] and [9] for explanation of debugging information)
 main-windows-debug.o: main.preprocessed.cpp
-	$(MSVC)/cl main.preprocessed.cpp /c /Zi /Wall /Fo"main-windows-debug.o"
+	$(MSVC)/cl main.preprocessed.cpp /c /Zi /W3 /Fo"main-windows-debug.o"
 runMCML-windows-debug.o: runMCML.preprocessed.cpp
-	$(MSVC)/cl runMCML.preprocessed.cpp /c /Zi /Wall /Fo"runMCML-windows-debug.o"
+	$(MSVC)/cl runMCML.preprocessed.cpp /c /Zi /W3 /Fo"runMCML-windows-debug.o"
 clusterlib-windows-debug.o: clusterlib.preprocessed.cpp
-	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Zi /Wall /Fo"clusterlib-windows-debug.o"
+	$(MSVC)/cl clusterlib.preprocessed.cpp /c /Zi /W3 /Fo"clusterlib-windows-debug.o"
 randomlib-windows-debug.o: randomlib.preprocessed.c
-	$(MSVC)/cl randomlib.preprocessed.c /c /Zi /Wall /Fo"randomlib-windows-debug.o"
+	$(MSVC)/cl randomlib.preprocessed.c /c /Zi /W3 /Fo"randomlib-windows-debug.o"
 clmem-windows-debug.o: clmem.preprocessed.cpp
-	$(MSVC)/cl clmem.preprocessed.cpp /c /Zi /Wall /Fo"clmem-windows-debug.o"
+	$(MSVC)/cl clmem.preprocessed.cpp /c /Zi /W3 /Fo"clmem-windows-debug.o"
 
 
 
@@ -210,7 +222,7 @@ clustermcml-gl-windows.exe: main-gl-windows.o runMCML-windows.o clusterlib-gl-wi
 		/OUT:"clustermcml-gl-windows.exe"
 
 main-gl-windows.o: main-gl.preprocessed.cpp
-	$(MSVC)/cl main-gl.preprocessed.cpp /c /Wall /Fo"main-gl-windows.o"
+	$(MSVC)/cl main-gl.preprocessed.cpp /c /W3 /Fo"main-gl-windows.o"
 main-gl.preprocessed.cpp: main.cpp clusterlib.h
 	$(MSVC)/cl main.cpp /c \
 		/D"GL_VISUALIZATION" \
@@ -221,7 +233,7 @@ main-gl.preprocessed.cpp: main.cpp clusterlib.h
 		/P /Fi"main-gl.preprocessed.cpp"
 
 clusterlib-gl-windows.o: clusterlib-gl.preprocessed.cpp
-	$(MSVC)/cl clusterlib-gl.preprocessed.cpp /c /Wall /Fo"clusterlib-gl-windows.o"
+	$(MSVC)/cl clusterlib-gl.preprocessed.cpp /c /W3 /Fo"clusterlib-gl-windows.o"
 clusterlib-gl.preprocessed.cpp: clusterlib.cpp
 	$(MSVC)/cl clusterlib.cpp /c \
 		/D"GL_VISUALIZATION" \
@@ -232,7 +244,7 @@ clusterlib-gl.preprocessed.cpp: clusterlib.cpp
 		/P /Fi"clusterlib-gl.preprocessed.cpp"
 
 clmem-gl-windows.o: clmem-gl.preprocessed.cpp
-	$(MSVC)/cl clmem-gl.preprocessed.cpp /c /Wall /Fo"clmem-gl-windows.o"
+	$(MSVC)/cl clmem-gl.preprocessed.cpp /c /W3 /Fo"clmem-gl-windows.o"
 clmem-gl.preprocessed.cpp: clmem.cpp
 	$(MSVC)/cl clmem.cpp /c \
 		/D"GL_VISUALIZATION" \
@@ -242,7 +254,7 @@ clmem-gl.preprocessed.cpp: clmem.cpp
 		/P /Fi"clmem-gl.preprocessed.cpp"
 
 gl-windows.o: gl-windows.preprocessed.cpp
-	$(MSVC)/cl gl-windows.preprocessed.cpp /c /Wall /Fo"gl-windows.o"
+	$(MSVC)/cl gl-windows.preprocessed.cpp /c /W3 /Fo"gl-windows.o"
 gl-windows.preprocessed.cpp: gl-windows.cpp
 	$(MSVC)/cl gl-windows.cpp /c \
 		/I$(MSVC_INCLUDE) \
@@ -277,7 +289,7 @@ clustermcpi-windows.exe: main-windows.o runMonteCarloPi-windows.o clusterlib-win
 
 # Compile the code that should setup and run the CL kernel
 runMonteCarloPi-windows.o: runMonteCarloPi.preprocessed.cpp
-	$(MSVC)/cl runMonteCarloPi.preprocessed.cpp /c /Wall /Fo"runMonteCarloPi-windows.o"
+	$(MSVC)/cl runMonteCarloPi.preprocessed.cpp /c /W3 /Fo"runMonteCarloPi-windows.o"
 
 runMonteCarloPi.preprocessed.cpp: runMonteCarloPi.cpp
 	$(MSVC)/cl runMonteCarloPi.cpp /c \
@@ -304,7 +316,7 @@ clustersimpson-windows.exe: main-windows.o runSimpson-windows.o clusterlib-windo
 
 # Compile the code that should setup and run the CL kernel
 runSimpson-windows.o: runSimpson.preprocessed.cpp
-	$(MSVC)/cl runSimpson.preprocessed.cpp /c /Wall /Fo"runSimpson-windows.o"
+	$(MSVC)/cl runSimpson.preprocessed.cpp /c /W3 /Fo"runSimpson-windows.o"
 
 runSimpson.preprocessed.cpp: runSimpson.cpp
 	$(MSVC)/cl runSimpson.cpp /c \
