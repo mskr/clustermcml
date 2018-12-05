@@ -194,7 +194,7 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 	float incidentAngle = acos(cosIncident);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
 	float cos_crit0 = layers[currentLayer].n > otherN ? sqrt(1.0f - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0f;
-	float cos_crit1 = layers[currentLayer].n > otherN ? sqrt(1.0 - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0;
+	float cos_crit1 = layers[currentLayer].n > otherN ? sqrt(1.0f - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0;
 	if (topOrBottom && cosIncident <= cos_crit0) {
 		fresnelR = 1.0f;
 	} else if (cosIncident <= cos_crit1) {
@@ -274,7 +274,6 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		return; // I have no work :(
 	}
 	uint rng_state = state->rngState;
-	if (rng_state == 0) rng_state = wang_hash(get_global_id(0));
 	float photonWeight = state->weight;
 	float3 pos = (float3)(state->x, state->y, state->z);
 	float3 dir = (float3)(state->dx, state->dy, state->dz);

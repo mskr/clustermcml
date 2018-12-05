@@ -31,14 +31,27 @@ typedef uint64_t Weight;
 #define MPI_WEIGHT_T MPI_UINT64_T
 
 
+// Holds a description of simulations, equivalent to mci file
 static int simCount = 0;
 static SimulationStruct* simulations = 0;
+
+// Per-simulation buffers
 static cl_mem* layersPerSimulation = 0;
 static cl_mem* boundariesPerSimulation = 0;
 static cl_mem* reflectancePerSimulation = 0;
 static cl_mem* transmissionPerSimulation = 0;
 static cl_mem* absorptionPerSimulation = 0;
+
+// Holds photon state for every GPU thread
 static cl_mem stateBuffer = 0;
+
+// Holds photon ages in GPU runs without restart
+static uint32_t* ages;
+
+static uint32_t* seeds;
+
+// Debug buffer can be used to output error messages from GPU
+// (only allocated if kernel is compiled with -D DEBUG flag)
 static cl_mem debugBuffer = 0;
 
 
@@ -199,37 +212,6 @@ static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 }
 
 
-static void freeResources() {
-	for (int i = 0; i < simCount; i++) {
-		free(simulations[i].layers);
-		free(simulations[i].boundaries);
-	}
-	free(absorptionPerSimulation);
-	free(transmissionPerSimulation);
-	free(reflectancePerSimulation);
-	free(boundariesPerSimulation);
-	free(layersPerSimulation);
-	free(simulations);
-}
-
-
-static bool handleDebugOutput() {
-	out << '\n';
-	//TODO print everything as hex view until reaching some unique end symbol
-	int n = 2048/4;
-	float sum = 0.0f;
-	for (int k = 0; k < n; k++) { // print as floats
-		float f = ((float*)CLMEM(debugBuffer))[k];
-		sum += f;
-		out << f << " ";
-	}
-	out << "sum=" << sum << '\n';
-	out << "average=" << (sum / n) << '\n';
-	out << '\n';
-	return true;
-}
-
-
 static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
 	// Do a blocking write to be safe (but maybe slow)
 	//TODO can we use async buffer transfers?
@@ -271,33 +253,49 @@ static float computeFresnelReflectance(float n0, float n1) {
 
 
 static void initPhotonStates(size_t totalThreadCount, float R_specular) {
-	for (int i = 0; i < totalThreadCount; i++) {
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
 		PhotonTracker newState = createNewPhotonTracker();
 		newState.weight -= R_specular;
+		newState.rngState = wang_hash(i); // Seed RNG
+
+		seeds[i] = newState.rngState;
+
 		CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
 	}
 }
 
 
 static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThreadCount, uint32_t* outFinishCount, float R_specular) {
-	for (int i = 0; i < totalThreadCount; i++) {
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
 
-		// Check for finished photons
-		if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0
-		&& !CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead)) {
+		if (!CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead)) {
 
-			(*outFinishCount)++;
+			ages[i]++; // this photon got one gpu round older
 
-			// Launch new only if next round cannot overachieve
-			if ((*outFinishCount) + totalThreadCount <= processPhotonCount) {
+			if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0) { // has it died?
 
-				PhotonTracker newState = createNewPhotonTracker();
-				newState.weight -= R_specular;
-				newState.rngState = wang_hash((*outFinishCount) + totalThreadCount);
-				CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+				(*outFinishCount)++;
 
-			} else {
-				CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead) = 1;
+				if (ages[i] > 14) {
+					out << "\nPhoton finished at age="<<ages[i]<<" with seed="<<seeds[i]<<"\n";
+				}
+
+				// Launch new photon only if next round cannot overachieve
+				if ((*outFinishCount) + totalThreadCount <= processPhotonCount) {
+
+					ages[i] = 0;
+
+					PhotonTracker newState = createNewPhotonTracker();
+					newState.weight -= R_specular;
+					newState.rngState = wang_hash((*outFinishCount) + totalThreadCount);
+
+					seeds[i] = newState.rngState;
+
+					CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+
+				} else {
+					CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead) = 1;
+				}
 			}
 		}
 	}
@@ -331,20 +329,35 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 }
 
 
+static bool handleDebugOutput() {
+	out << '\n';
+	//TODO print everything as hex view until reaching some unique end symbol
+	int n = 2048/4;
+	float sum = 0.0f;
+	for (int k = 0; k < n; k++) { // print as floats
+		float f = ((float*)CLMEM(debugBuffer))[k];
+		sum += f;
+		out << f << " ";
+	}
+	// The gpu-filled debug buffer is great for some statistical analysis
+	out << "sum=" << sum << '\n';
+	out << "average=" << (sum / n) << '\n';
+	out << '\n';
+	return true;
+}
+
+
 static void simulate(cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, 
 uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl_event kernelEvent) {
-
-	assert(photonCount >= totalThreadCount, "Use more photons!");
+	assert(photonCount >= totalThreadCount); // this is a non-sensical low photon count
 
 	size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonTracker);
 
-	// Run kernel with optimal thread count as long as targeted number of photons allows it
-	//TODO compare perf against CUDAMCML, which does not wait for longest simulating thread,
-	// but instead launches a new photon directly from a thread that would terminate,
-	// causing additional tracking overhead.
-
 	uint32_t finishedPhotonCount = 0;
+	uint32_t gpuRoundCounter = 0;
+
 	if (rank == 0) out << '\n';
+
 	while (finishedPhotonCount < photonCount) {
 
 		// Upload photon states
@@ -354,6 +367,7 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 
 		// Run a batch of photons
 		CL(EnqueueNDRangeKernel, cmd, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, &kernelEvent);
+		gpuRoundCounter++;
 
 		// Download photon states
 		CL(EnqueueReadBuffer, cmd, stateBuffer, CL_FALSE, 0,
@@ -372,9 +386,13 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
 
 		// Print status
-		if (rank == 0) out << '\r' << "Photons terminated: " << totalFinishedPhotonCount << "/" << targetPhotonCount << Log::flush;
+		if (rank == 0) out << '\r' << "Photons terminated: " << totalFinishedPhotonCount << "/" << targetPhotonCount << ", Round " << gpuRoundCounter << Log::flush;
 	}
 	if (rank == 0) out << '\n';
+
+	//TODO compare perf against CUDAMCML, which does not wait for longest simulating thread,
+	// but instead launches a new photon directly from a thread that would terminate,
+	// causing additional tracking overhead.
 }
 
 
@@ -450,7 +468,7 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 	int angularBinCount = sim.det.na;
 	int depthBinCount = sim.det.nz;
 	// Sum RAT buffers from all processes
-	MPI(Reduce, CLMEM(R), outR, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI(Reduce, CLMEM(R), outR, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD); //TODO why can this cause access violation?
 	MPI(Reduce, CLMEM(T), outT, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI(Reduce, CLMEM(A), outA, radialBinCount*depthBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
 }
@@ -458,11 +476,29 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 
 static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weight* T_ra, cl_event kernelEvent) {
 	uint64_t timeStart = 0, timeEnd = 0;
-	CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
-	CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
+	// CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
+	// CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
 	out << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 
 	Write_Simulation_Results(A_rz, T_ra, R_ra, &sim, timeEnd - timeStart);
+
+	out << "Output file written: " << sim.outp_filename << "\n";
+}
+
+
+static void freeResources() {
+	for (int i = 0; i < simCount; i++) {
+		free(simulations[i].layers);
+		free(simulations[i].boundaries);
+	}
+	free(absorptionPerSimulation);
+	free(transmissionPerSimulation);
+	free(reflectancePerSimulation);
+	free(boundariesPerSimulation);
+	free(layersPerSimulation);
+	free(simulations);
+	free(ages);
+	free(seeds);
 }
 
 
@@ -491,6 +527,12 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 
 	// Photon states buffer
 	stateBuffer = CLMALLOC_OUTPUT(totalThreadCount, PhotonTracker);
+
+	ages = (uint32_t*)malloc(totalThreadCount * sizeof(uint32_t));
+	seeds = (uint32_t*)malloc(totalThreadCount * sizeof(uint32_t));
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
+		ages[i] = seeds[i] = 0;
+	}
 
 	// Allocate memory for each simulation
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
@@ -529,7 +571,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		if (rank == 0) { // rank 0 takes the remainder on top
 			processPhotonCount += (targetPhotonCount % processCount);
 		}
-		cl_event kernelEvent;
+		cl_event kernelEvent = 0;
 		#ifndef NO_GPU
 		simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular, kernelEvent);
 		#else
@@ -554,8 +596,8 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		Weight* totalReflectance = (Weight*)malloc(reflectanceBufferSize);
 		Weight* totalTransmittance = (Weight*)malloc(transmissionBufferSize);
 		Weight* totalAbsorption = (Weight*)malloc(absorptionBufferSize);
-		reduceOutputArrays(simulations[simIndex], reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex],
-			totalReflectance, totalTransmittance, totalAbsorption);
+		// reduceOutputArrays(simulations[simIndex], reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex],
+		// 	totalReflectance, totalTransmittance, totalAbsorption);
 		#else
 		Weight* totalReflectance = (Weight*)CLMEM(reflectancePerSimulation[simIndex]);
 		Weight* totalTransmittance = (Weight*)CLMEM(transmissionPerSimulation[simIndex]);
@@ -570,7 +612,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		free(totalAbsorption);
 		#endif
 
-		CL(ReleaseEvent, kernelEvent);
+		// CL(ReleaseEvent, kernelEvent);
 	}
 	freeResources();
 }
