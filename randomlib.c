@@ -1,6 +1,6 @@
 // Need redefines to make the C source use OpenCL C terminology.
 #if defined(__OPENCL_VERSION__)
-#define const __constant
+#define const __constant // Warning: generally const != __constant in OpenCL
 #define uint32_t uint
 #endif
 
