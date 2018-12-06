@@ -347,7 +347,7 @@ Real readRadialHeightfield(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SA
 /**
 * Find intersection of line with radial heightfield (inaccurate)
 */
-Real intersectHeightfield1(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
+Real intersectHeightfieldInaccurate(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
     // Coarse raymarching search
     Real D = min(0.02f, len);
     Real3 p = pos;
@@ -370,13 +370,27 @@ Real intersectHeightfield1(Real3 pos, Real3 dir, Real len, Real3 center, Real he
     return -1.f;
 }
 
+typedef struct {
+    Real3 start;
+    Real3 end;
+} Line;
+
+typedef struct {
+    Real3 center;
+    Real heights[BOUNDARY_SAMPLES];
+    Real spacings[BOUNDARY_SAMPLES];
+} RHeightfield;
+
 /**
 * Construct the cone at given xy position in the radial heightfield
 */
-Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
+Cone3 getConeAt(Real2 xy, RHeightfield hfield, Real3* outNormal) {
+
+    //TODO use array with spacings between samples for non-uniform resolution
     Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
+    
     // Calc p in heightmap coordinate system
-    Real2 p = pos.xy - center.xy;
+    Real2 p = xy - hfield.center.xy;
     // Calc radial offset
     Real r = length(p);
     // Calc array offset using sampling resolution
@@ -384,8 +398,8 @@ Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Rea
     int i = (int)(x);
 
     // Get 2 nearest samples
-    Real h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
-    Real h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
+    Real h0 = hfield.heights[min(i, BOUNDARY_SAMPLES-1)];
+    Real h1 = hfield.heights[min(i+1, BOUNDARY_SAMPLES-1)];
     // Calc distances from the 2 samples
     Real fl = 0.0; Real f = fract(x, &fl); Real rf = 1.0f-f;
 
@@ -404,20 +418,20 @@ Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Rea
     // Calc normal from gradient and tangent
     // note: cross(a,b) forms right-handed system, where a==thumb
     // then translate normal back into cartesian coordinates
-    *outNormal = normalize(cross(tangent, gradient) + center);
+    *outNormal = normalize(cross(tangent, gradient) + hfield.center);
 
     // Linear interpolation
     Real h = mix(h0, h1, f);
     // Apply height in -z direction
-    Real z = center.z - h;
-    Real z0 = center.z - h0;
-    Real z1 = center.z - h1;
+    Real z = hfield.center.z - h;
+    Real z0 = hfield.center.z - h0;
+    Real z1 = hfield.center.z - h1;
     // Linearly extrapolate z to center
     Real slope = (z1-z0)/res;
     Real b = z - (slope*r);
-    Real coneTip = slope * length(center.xy) + b;
+    Real coneTip = slope * length(hfield.center.xy) + b;
     // Construct the cone
-    Ray3 mainAxis = { (Real3)(center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
+    Ray3 mainAxis = { (Real3)(hfield.center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
     Cone3 theCone = { mainAxis,
          /*angle:*/  atan2(res, fabs(h1-h0)), 
          /*height:*/ h1==h0 ? (x+rf)*res: max(fabs(coneTip-z0), fabs(coneTip-z1)),
@@ -426,15 +440,35 @@ Cone3 getConeAt(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Rea
 }
 
 /**
+* Get the point on a line that minimizes the distance to another point
+*/
+Real3 getLinePointOrtho(Line line, Real3 point) {
+    const Real3 s = line.start;
+    const Real3 e = line.end;
+    const Real num = dot(c-s, e-s);
+    const Real denom = dot(e-s, e-s);
+    const Real t = num / denom;
+    return s + t*(e-s);
+}
+
+/**
 * Find intersection of line with radial heightfield (accurate)
 */
-Real intersectHeightfield2(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
+Real intersectHeightfield(Line line, RHeightfield hfield, Real3* outNormal) {
     // iterate over all cones in the path of the ray and take the first hit
-    Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
+
+    //TODO use array with spacings between samples for non-uniform resolution
+    const Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
+
+    const int startCone = getConeAt(line.start.xy, hfield);
+    const int endCone = getConeAt(line.end.xy, hfield);
+    const Real3 closest = getLinePointOrtho(line, hfield.center);
+    const int closestCone = getConeAt(closest.xy, hfield);
+    //TODO test all cones between these points
+
+    //TODO delete this scheme, it does not work: res has no meaning when applied along the ray, but only when applied towards center
     Real s = 0.0;
     while (s-res < len) { // always test one more cone
-        //TODO this scheme does not work: res has no meaning when applied along the ray, but only when applied towards center
-        // therefore we need to find the point on the ray with minimal distance from center and then test all cones between this points and start and end
         Real3 p = pos + s * dir;
         Cone3 cone = getConeAt(p.xy, center, heightfield, outNormal);
         Real t = intersectCone(pos, dir, cone);
