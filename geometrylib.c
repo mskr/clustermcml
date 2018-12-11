@@ -393,133 +393,6 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone, Real3* out
 
 
 /**
-* Return cartesian z value from radial heightfield at cartesian position xy.
-* Also output normal that is oriented in -z direction.
-* Heights are interpreted in -z direction since +z goes down into material.
-*/
-Real readRadialHeightfield(Real2 pos, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
-    Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES);
-    // Calc p in heightmap coordinate system
-    Real2 p = pos.xy - center.xy;
-    // Calc radial offset
-    Real r = length(p);
-    // Calc array offset using sampling resolution
-    Real x = r / res;
-    int i = (int)(x);
-    // Get 2 nearest samples
-    Real h0 = heightfield[min(i, BOUNDARY_SAMPLES-1)];
-    Real h1 = heightfield[min(i+1, BOUNDARY_SAMPLES-1)];
-    // Calc distances from the 2 samples
-    Real fl = 0.0; Real f = fract(x, &fl); Real rf = 1.0f-f;
-    // Calc gradient from p1 to p0,
-    // so that p0 lies on the nearest sample towards center
-    // and p1 lies on the next outer sample
-    Real2 p0 = (Real2)(0, 0);
-    Real2 p1 = (Real2)(res, 0);
-    if (x > 0.0) {
-        p0 = p*(1.0f-f/x);
-        p1 = p*(1.0f+rf/x);
-    }
-    Real3 gradient = normalize((Real3)(p0, -h0) - (Real3)(p1, -h1));
-    // Calc clockwise tangent
-    Real3 tangent = normalize((Real3)(p.y, -p.x, 0));
-    // Calc normal from gradient and tangent
-    // note: cross(a,b) forms right-handed system, where a==thumb
-    // then translate normal back into cartesian coordinates
-    *outNormal = normalize(cross(tangent, gradient) + center);
-    // Linear interpolation
-    return center.z - mix(h0, h1, f);
-}
-
-
-/**
-* Find intersection of line with radial heightfield (inaccurate)
-*/
-Real intersectHeightfieldInaccurate(Real3 pos, Real3 dir, Real len, Real3 center, Real heightfield[BOUNDARY_SAMPLES], Real3* outNormal) {
-    // Coarse raymarching search
-    Real D = min(0.02f, len);
-    Real3 p = pos;
-    Real lastDz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
-    Real d = D;
-    Real3 ds = D * dir;
-    while (d <= len) {
-        p += ds;
-        Real dz = p.z - readRadialHeightfield(p.xy, center, heightfield, outNormal);
-        // Detect sign change
-        if ((lastDz > 0.0 && dz < 0.0) || (lastDz < 0.0 && dz > 0.0)) {
-            // if ray came from +z, i.e. (dz < 0), normal will point down
-            if (dz < 0.0) *outNormal *= -1.0f;
-            // Path to intersection
-            return d;
-        }
-        lastDz = dz;
-        d += D;
-    }
-    return -1.f;
-}
-
-
-/**
-* Construct the cone at given xy position in the radial heightfield.
-* The cone shapes arise when rotating an 1D heightfield in a plane around a center.
-*/
-Cone3 getConeAtPosition(Real2 xy, RHeightfield hfield, Real3* outNormal, int* outIndex) {
-
-    Real res = (Real)(BOUNDARY_WIDTH) / (Real)(BOUNDARY_SAMPLES); //TODO use array with spacings between samples for non-uniform resolution
-    
-    // Calc p in heightmap coordinate system
-    Real2 p = xy - hfield.center.xy;
-    // Calc radial offset
-    Real r = length(p);
-    // Calc array offset using sampling resolution
-    Real x = r / res;
-    int i = (int)(x);
-    *outIndex = i;
-
-    // Get 2 nearest samples
-    Real h0 = hfield.heights[min(i, BOUNDARY_SAMPLES-1)];
-    Real h1 = hfield.heights[min(i+1, BOUNDARY_SAMPLES-1)];
-    // Calc distances from the 2 samples
-    Real fl = 0.0; Real f = fract(x, &fl); Real rf = 1.0f-f;
-
-    // Calc gradient from p1 to p0,
-    // so that p0 lies on the nearest sample towards center
-    // and p1 lies on the next outer sample
-    Real2 p0 = (Real2)(0, 0);
-    Real2 p1 = (Real2)(res, 0);
-    if (x > 0.0) {
-        p0 = p*(1.0f-f/x);
-        p1 = p*(1.0f+rf/x);
-    }
-    Real3 gradient = normalize((Real3)(p0, -h0) - (Real3)(p1, -h1));
-    // Calc clockwise tangent
-    Real3 tangent = normalize((Real3)(p.y, -p.x, 0));
-    // Calc normal from gradient and tangent
-    // note: cross(a,b) forms right-handed system, where a==thumb
-    // then translate normal back into cartesian coordinates
-    *outNormal = normalize(cross(tangent, gradient) + hfield.center);
-
-    // Linear interpolation
-    Real h = mix(h0, h1, f);
-    // Apply height in -z direction
-    Real z = hfield.center.z - h;
-    Real z0 = hfield.center.z - h0;
-    Real z1 = hfield.center.z - h1;
-    // Linearly extrapolate z to center
-    Real slope = (z1-z0)/res;
-    Real b = z - (slope*r);
-    Real coneTip = slope * length(hfield.center.xy) + b;
-    // Construct the cone
-    Ray3 mainAxis = { (Real3)(hfield.center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
-    Cone3 theCone = { mainAxis,
-         /*angle:*/  atan2(res, fabs(h1-h0)), 
-         /*height:*/ h1==h0 ? (x+rf)*res: max(fabs(coneTip-z0), fabs(coneTip-z1)),
-         /*cap:*/    h1==h0 ? (x-f)*res : min(fabs(coneTip-z0), fabs(coneTip-z1)) };
-    return theCone;
-}
-
-
-/**
 *
 */
 Cone3 getConeAtIndex(int i, RHeightfield hfield) {
@@ -598,8 +471,10 @@ Real intersectHeightfield(Line3 line, RHeightfield hfield, Real3* outNormal) {
         Real3 normal = (Real3)(0);
         const Real t = intersectCone(line.start, rayDir, cone, &normal);
         if (t > 0.0 && t <= length(lineVec)) {
-            pathLenToIntersection = min(pathLenToIntersection, t);
-            *outNormal = normal;
+            if (t < pathLenToIntersection || pathLenToIntersection == -1.0) {
+                pathLenToIntersection = t;
+                *outNormal = normal;
+            }
         }
     }
 
