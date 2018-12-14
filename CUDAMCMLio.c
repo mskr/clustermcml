@@ -21,7 +21,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "CUDAMCML.h"
+#include "CUDAMCMLio.h"
 
 int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
 {
@@ -405,14 +405,20 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 		printf("Upper refractive index=%f\n",ftemp[0]);
 		(*simulations)[i].layers[0].n=ftemp[0];
 
+		const char* hfieldError = "Error reading boundary data, probably mismatch in the number of heightfield samples";
+
 		dtot=0;
 		for(ii=1;ii<=n_layers;ii++)
 		{
-			// Read boundary data
+			// Read boundary data (array of height spacing pairs)
 			if (explicitBoundaries) {
-				for (int heightfieldIndex = 0; heightfieldIndex < BOUNDARY_SAMPLES; heightfieldIndex++) {
-					int success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].heightfield + heightfieldIndex);
-					if (!success) { perror("Error reading boundary data, probably mismatch in the number of heightfield samples"); return 0; }
+				for (int hIdx = 0; hIdx < 2*BOUNDARY_SAMPLES; hIdx++) {
+					int success = 0;
+					if (hIdx % 2 == 0)
+						success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].heights + hIdx);
+					else
+						success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].spacings + hIdx);
+					if (!success) { perror(hfieldError); return 0; }
 				}
 			}
 			// Read Layer data (5x float)
@@ -432,9 +438,13 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 
 		// One more boundary
 		if (explicitBoundaries) {
-			for (int heightfieldIndex = 0; heightfieldIndex < BOUNDARY_SAMPLES; heightfieldIndex++) {
-				int success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].heightfield + heightfieldIndex);
-				if (!success) { perror("Error reading last boundary data, probably mismatch in the number of heightfield samples"); return 0; }
+			for (int hIdx = 0; hIdx < 2*BOUNDARY_SAMPLES; hIdx++) {
+				int success = 0;
+				if (hIdx % 2 == 0)
+					success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].heights + hIdx);
+				else
+					success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].spacings + hIdx);
+				if (!success) { perror(hfieldError); return 0; }
 			}
 		}
 

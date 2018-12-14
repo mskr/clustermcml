@@ -1,82 +1,7 @@
+#include "geometrylib.h"
+
 #define Real float
 #define Real3 float3
-#define Real2 float2
-
-
-/**
-* Ray in 3-space
-*/
-typedef struct {
-    Real3 origin, direction;
-} Ray3;
-
-
-/**
-* Cone in 3-space.
-* The cone has vertex V, unit-length axis direction D, angle theta in (0,pi/2).
-* Also a height and cap position are defined along the axial ray.
-* The cone vertex is the ray origin and the cone axis direction is the
-* ray direction. The direction must be unit length. The angle must be
-* in (0,pi/2). The height must be in (0,+infinity), where +infinity is INFINITY.
-*/
-typedef struct {
-    Ray3 ray;
-    Real angle;
-    Real height;
-    Real cap; // to cap the pointy end, set this to a value in (0,height)
-} Cone3;
-
-
-/**
-* Line in 3-space
-*/
-typedef struct {
-    Real3 start;
-    Real3 end;
-} Line3;
-
-
-/**
-*
-*/
-typedef struct {
-    Real3 middle;
-    Real3 normal;
-} Plane3;
-
-
-/**
-* Radial heightfield
-*/
-typedef struct {
-    Real3 center;
-    Real heights[BOUNDARY_SAMPLES];
-    Real spacings[BOUNDARY_SAMPLES];
-} RHeightfield;
-
-
-/**
-* Because the intersection of line and cone with infinite height
-* h > 0 can be a ray or a line, we use a 'type' value that allows
-* you to decide how to interpret the parameter[] and point[] values.
-*   type  intersect  valid data
-*   0     none       none
-*   1     point      parameter[0] = parameter[1], finite
-*                    point[0] = point[1]
-*   2     segment    parameter[0] < parameter[1], finite
-*                    point[0,1] valid
-*   3     ray        parameter[0] finite, parameter[1] maxReal
-*                    point[0] = rayOrigin, point[1] = lineDirection
-*   4     ray        parameter[0] -maxReal, parameter[1] finite
-*                    point[0] = rayOrigin, point[1] = -lineDirection
-*   5     line       parameter[0] -maxReal, parameter[1] maxReal,
-*                    point[0] = lineOrigin, point[1] = lineDirection
-* If the cone height h is finite, only types 0, 1, or 2 can occur.
-*/
-typedef struct {
-    int type;
-    Real parameter[2];  // Relative to incoming line.
-} RayConeIntersectionResult;
 
 
 /*
@@ -105,7 +30,7 @@ Real intersectPlane(Real3 pos, Real3 dir, Real3 middle, Real3 normal) {
 /**
 * Get the point on a line that minimizes the distance to another point
 */
-Real3 projectPointToLine(Line3 line, Real3 point) {
+Real3 projectPointToLine(struct Line3 line, Real3 point) {
     const Real3 s = line.start;
     const Real3 e = line.end;
     const Real num = dot(point-s, e-s);
@@ -119,7 +44,7 @@ Real3 projectPointToLine(Line3 line, Real3 point) {
 * Get point on plane that minimizes distance to another point
 * http://immersivemath.com/ila/ch03_dotproduct/ch03.html#ex_dp_ortho_proj_onto_plane
 */
-Real3 projectPointToPlane(Plane3 plane, Real3 point) {
+Real3 projectPointToPlane(struct Plane3 plane, Real3 point) {
     Real3 v = point - plane.middle;
     Real3 proj = (dot(v, plane.normal) / pow(length(plane.normal), 2)) * plane.normal;
     return v - proj;
@@ -128,7 +53,7 @@ Real3 projectPointToPlane(Plane3 plane, Real3 point) {
 
 /**
 * Get point rotated 90 degrees around vector (counter-clockwise).
-* Basically application of rotation matrix with simplified sines and cosines.
+* Basically application of rotation matrix with sines and cosines canceled out.
 * https://en.wikipedia.org/wiki/Rotation_matrix#Rotation_matrix_from_axis_and_angle
 */
 Real3 rotate90PointAroundVector(Real3 vector, Real3 point) {
@@ -153,8 +78,8 @@ Real3 rotate90PointAroundVector(Real3 vector, Real3 point) {
 *
 * https://www.geometrictools.com/Documentation/IntersectionLineCone.pdf
 */
-Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone, Real3* outNormal) {
-    RayConeIntersectionResult result;
+Real intersectCone(Real3 lineOrigin, Real3 lineDirection, struct Cone3 cone, Real3* outNormal) {
+    struct RayConeIntersectionResult result;
     // The cone has vertex V, unit-length axis direction D, angle theta in
     // (0,pi/2), and height h in (0,+infinity).  The line is P + t*U, where U
     // is a unit-length direction vector.  Define g = cos(theta).  The cone
@@ -377,7 +302,7 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone, Real3* out
         // Calc normal
         const Real3 p = lineOrigin + t*lineDirection;
         const Real3 grad = p - cone.ray.origin;
-        const Plane3 basePlane = { cone.ray.origin, cone.ray.direction };
+        const struct Plane3 basePlane = { cone.ray.origin, cone.ray.direction };
         const Real3 basePoint = projectPointToPlane(basePlane, p);
         const Real3 tang = rotate90PointAroundVector(cone.ray.direction, basePoint - cone.ray.origin);
         Real3 normal = cross(normalize(grad), normalize(tang));
@@ -395,12 +320,7 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, Cone3 cone, Real3* out
 /**
 *
 */
-Cone3 getConeAtIndex(int i, RHeightfield hfield) {
-
-    // Calc radial offsets
-    Real r0 = 0;
-    for (int j = 0; j < i; j++) r0 += hfield.spacings[j];
-    Real r1 = r0 + hfield.spacings[i];
+struct Cone3 getConeAtIndex(int i, struct RHeightfield hfield) {
 
     // Get 2 nearest samples
     Real h0 = hfield.heights[min(i, BOUNDARY_SAMPLES-1)];
@@ -410,14 +330,19 @@ Cone3 getConeAtIndex(int i, RHeightfield hfield) {
     Real z0 = hfield.center.z - h0;
     Real z1 = hfield.center.z - h1;
 
+    // Calc radial offsets
+    Real r0 = 0;
+    for (int j = 0; j < i; j++) r0 += hfield.spacings[j];
+    Real r1 = r0 + hfield.spacings[i];
+
     // Linear extrapolation
     Real slope = (z1-z0)/(r1-r0);
     Real b = z0 - slope*r0;
 
     // Construct capped cone
     Real coneTip = slope*length(hfield.center.xy) + b;
-    Ray3 mainAxis = { (Real3)(hfield.center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
-    Cone3 theCone = { mainAxis,
+    struct Ray3 mainAxis = { (Real3)(hfield.center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
+    struct Cone3 theCone = { mainAxis,
          /*angle:*/  atan2(fabs(r1-r0), fabs(h1-h0)), 
          /*height:*/ h1==h0 ? r1 : max(fabs(coneTip-z0), fabs(coneTip-z1)),
          /*cap:*/    h1==h0 ? r0 : min(fabs(coneTip-z0), fabs(coneTip-z1)) };
@@ -426,9 +351,12 @@ Cone3 getConeAtIndex(int i, RHeightfield hfield) {
 
 
 /**
+* Get index of cone from position in radial heightfield.
+* Index starts at 0 (most inner cone).
 *
+* Note: Cone shapes arise when rotating heightfield in xy plane around center.
 */
-int getConeIndexFromPosition(Real2 xy, RHeightfield hfield) {
+int getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield) {
 
     // Calc p in heightmap coordinate system
     Real2 p = xy - hfield.center.xy;
@@ -438,10 +366,12 @@ int getConeIndexFromPosition(Real2 xy, RHeightfield hfield) {
 
     // Count spacings that fit in r
     // (clamp to number of samples)
-    int i = 0; Real s = 0.0;
-    while (i < BOUNDARY_SAMPLES) {
-        s += hfield.spacings[i];
-        if (s < r) i++;
+    int i = 0;
+    Real s = hfield.spacings[0];
+    while (r > s) {
+        i++;
+        if (i < BOUNDARY_SAMPLES)
+            s += hfield.spacings[i];
         else break;
     }
     return i;
@@ -451,7 +381,7 @@ int getConeIndexFromPosition(Real2 xy, RHeightfield hfield) {
 /**
 * Find intersection of line with radial heightfield (accurate)
 */
-Real intersectHeightfield(Line3 line, RHeightfield hfield, Real3* outNormal) {
+Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* outNormal) {
     // Algorithm outline:
     // iterate over all cones in the path of the line and take the closest hit
     //  - to make sure not to miss any cones, get cone under the closest point on the line to heightfield center
@@ -465,7 +395,7 @@ Real intersectHeightfield(Line3 line, RHeightfield hfield, Real3* outNormal) {
 
     Real pathLenToIntersection = -1.0f;
     for (int i = closestIndex; i <= farestIndex; i++) {
-        const Cone3 cone = getConeAtIndex(i, hfield);
+        const struct Cone3 cone = getConeAtIndex(i, hfield);
         const Real3 lineVec = line.start - line.end;
         const Real3 rayDir = normalize(lineVec);
         Real3 normal = (Real3)(0);
@@ -487,4 +417,3 @@ Real intersectHeightfield(Line3 line, RHeightfield hfield, Real3* outNormal) {
 
 #undef Real
 #undef Real3
-#undef Real2

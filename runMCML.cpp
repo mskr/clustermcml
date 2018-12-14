@@ -11,22 +11,37 @@
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
+// Mem management
 #include "clmem.h" // CLMALLOC_INPUT, CLMALLOC_OUTPUT, CLMEM, CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_AOS
 
-// Data structures
-#include "Boundary.h"
-#include "Layer.h"
-#include "PhotonTracker.h"
+// Core structs
+#include "Layer.h" // struct Layer
+#include "PhotonTracker.h" // struct PhotonTracker
+#include "Boundary.h" // BOUNDARY_SAMPLES
 
+// Geometry structs
+typedef cl_float3 float3; // note: sizeof(cl_float3) != sizeof(float[3])
+#include "geometrylib.h" // struct RHeightfield
+
+// All boundaries are heightfields now!
+#define Boundary RHeightfield //TODO make this configurable
+
+// RNG functions
 #include "randomlib.h" // wang_hash, rand_xorshift
-#include "Log.h" // out stream
+
+// Logging class
+#include "Log.h" // out
+
+// Error catching macros
 #define DEBUG
 #include "clcheck.h" // CL macro
 #include "mpicheck.h" // MPI macro
 
-#include "CUDAMCML.h"
+// MCML file io
+#include "CUDAMCMLio.h" // SimulationStruct
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
+// Photon weight type
 typedef uint64_t Weight;
 #define MPI_WEIGHT_T MPI_UINT64_T
 
@@ -48,6 +63,7 @@ static cl_mem stateBuffer = 0;
 // Holds photon ages in GPU runs without restart
 static uint32_t* ages;
 
+// Holds random seed for each photon in its current GPU run
 static uint32_t* seeds;
 
 // Debug buffer can be used to output error messages from GPU
@@ -126,7 +142,13 @@ static MPI_Datatype createMPILayerStruct() {
 
 
 static MPI_Datatype createMPIBoundaryStruct() {
-	int blockLengths[1] = {1 + BOUNDARY_SAMPLES};
+	// struct RHeightfield
+	// Real3 center;
+	// Real heights[BOUNDARY_SAMPLES];
+	// Real spacings[BOUNDARY_SAMPLES];
+
+	// Note: Real3 is cl_float3 which is 4 floats wide
+	int blockLengths[1] = {(sizeof(cl_float3)/sizeof(float)) + 2*BOUNDARY_SAMPLES};
 	int offsets[1] = {0};
 	MPI_Datatype types[1] = {MPI_FLOAT};
 	MPI_Datatype boundaryStruct;
@@ -137,11 +159,11 @@ static MPI_Datatype createMPIBoundaryStruct() {
 
 
 static void broadcastInputData(int rank) {
+
 	// Broadcast the complex simulation struct piece by piece
 	// (could optimize communication overhead with MPI pack/unpack:
 	// https://www.mpi-forum.org/docs/mpi-2.2/mpi22-report/node84.htm
 	// https://stackoverflow.com/a/32487093)
-
 	MPI(Bcast, &simCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	if (rank != 0)
 		simulations = (SimulationStruct*)malloc(simCount * sizeof(SimulationStruct));
@@ -151,6 +173,7 @@ static void broadcastInputData(int rank) {
 	assert(mpiSimSize == sizeof(SimulationStruct));
 	MPI(Bcast, simulations, simCount, mpiSimStruct, 0, MPI_COMM_WORLD);
 
+	// Broadcast layer struct
 	MPI_Datatype mpiLayerStruct = createMPILayerStruct();
 	int mpiLayerSize = 0;
 	MPI(Type_size, mpiLayerStruct, &mpiLayerSize);
@@ -161,6 +184,7 @@ static void broadcastInputData(int rank) {
 		MPI(Bcast, simulations[i].layers, simulations[i].n_layers + 2, mpiLayerStruct, 0, MPI_COMM_WORLD);
 	}
 
+	// Broadcast boundary struct
 	MPI_Datatype mpiBoundaryStruct = createMPIBoundaryStruct();
 	int mpiBoundarySize = 0;
 	MPI(Type_size, mpiBoundaryStruct, &mpiBoundarySize);
@@ -174,6 +198,7 @@ static void broadcastInputData(int rank) {
 
 
 static void setupInputArrays(SimulationStruct sim, int simIndex) {
+
 	// Alloc space for layers and boundaries
 	int layerCount = sim.n_layers;
 	layersPerSimulation[simIndex] = CLMALLOC_INPUT(layerCount, Layer);
@@ -181,10 +206,16 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 
 	// Data structures as read from file are slightly restructured to be ready for GPU consumption
 	for (int j = 1; j <= layerCount; j++) {
+
 		// Boundary
-		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, z) = sim.layers[j].z_min;
-		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield),
-			sim.boundaries[j-1].heightfield, BOUNDARY_SAMPLES);
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.x) = 0.0f;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.y) = 0.0f;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.z) = sim.layers[j].z_min;
+		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heights),
+			sim.boundaries[j-1].heights, BOUNDARY_SAMPLES);
+		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, spacings),
+			sim.boundaries[j-1].spacings, BOUNDARY_SAMPLES);
+
 		// Layer
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, absorbCoeff) = sim.layers[j].mua;
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, scatterCoeff) = 
@@ -192,10 +223,15 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, g) = sim.layers[j].g;
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, n) = sim.layers[j].n;
 	}
+
 	// One more boundary
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, z) = sim.layers[layerCount].z_max;
-	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield), 
-		sim.boundaries[layerCount].heightfield, BOUNDARY_SAMPLES);
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.x);
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.y);
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.z) = sim.layers[layerCount].z_max;
+	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heights), 
+		sim.boundaries[layerCount].heights, BOUNDARY_SAMPLES);
+	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, spacings),
+		sim.boundaries[layerCount].spacings, BOUNDARY_SAMPLES);
 }
 
 
@@ -214,7 +250,9 @@ static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 
 static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
 	// Do a blocking write to be safe (but maybe slow)
+
 	//TODO can we use async buffer transfers?
+
 	CL(EnqueueWriteBuffer, cmd, layers, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(layers), 0, NULL, NULL);
 	CL(EnqueueWriteBuffer, cmd, boundaries, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(boundaries), 0, NULL, NULL);
 }
