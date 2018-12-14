@@ -1,6 +1,7 @@
 #include "geometrylib.h"
 
 #define Real float
+#define Real2 float2
 #define Real3 float3
 
 
@@ -63,6 +64,30 @@ Real3 rotate90PointAroundVector(Real3 vector, Real3 point) {
         point.x * (u.y*u.x+u.z) + point.y * (u.y*u.y) + point.z * (u.y*u.z-u.x),
         point.x * (u.z*u.x-u.y) + point.y * (u.z*u.y+u.x) + point.z * (u.z*u.z));
 }
+
+
+/**
+* Because the intersection of line and cone with infinite height
+* h > 0 can be a ray or a line, we use a 'type' value that allows
+* you to decide how to interpret the parameter[] and point[] values.
+*   type  intersect  valid data
+*   0     none       none
+*   1     point      parameter[0] = parameter[1], finite
+*                    point[0] = point[1]
+*   2     segment    parameter[0] < parameter[1], finite
+*                    point[0,1] valid
+*   3     ray        parameter[0] finite, parameter[1] maxReal
+*                    point[0] = rayOrigin, point[1] = lineDirection
+*   4     ray        parameter[0] -maxReal, parameter[1] finite
+*                    point[0] = rayOrigin, point[1] = -lineDirection
+*   5     line       parameter[0] -maxReal, parameter[1] maxReal,
+*                    point[0] = lineOrigin, point[1] = lineDirection
+* If the cone height h is finite, only types 0, 1, or 2 can occur.
+*/
+struct RayConeIntersectionResult {
+    int type;
+    Real parameter[2];  // Relative to incoming line.
+};
 
 
 /**
@@ -416,4 +441,5 @@ Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* 
 
 
 #undef Real
+#undef Real2
 #undef Real3

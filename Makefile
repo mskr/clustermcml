@@ -145,11 +145,13 @@ mcml-nogpu-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h La
 
 # Kernel
 # 4. Now we can compile the kernel as C++
-mcml-nogpu-kernel-windows.o: mcmlKernel.preprocessed.c.cpp
+mcml-nogpu-kernel-windows.o: mcml-nogpu-kernel-windows.preprocessed.cpp
+	$(MSVC)/cl mcml-nogpu-kernel-windows.preprocessed.cpp /c /Zi /W3 /Fo"mcml-nogpu-kernel-windows.o"
+mcml-nogpu-kernel-windows.preprocessed.cpp: mcmlKernel.preprocessed.c.cpp
 	$(MSVC)/cl mcmlKernel.preprocessed.c.cpp /c /Zi /W3 \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/Fo"mcml-nogpu-kernel-windows.o"
+		/P /Fi"mcml-nogpu-kernel-windows.preprocessed.cpp"
 
 # 3. Transpile the preprocessed kernel
 mcmlKernel.preprocessed.c.cpp: mcmlKernel.preprocessed.c cl2cpp.exe

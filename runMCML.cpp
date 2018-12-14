@@ -20,7 +20,11 @@
 #include "Boundary.h" // BOUNDARY_SAMPLES
 
 // Geometry structs
+#ifdef NO_GPU
+typedef struct { float x,y,z; } float3;
+#else
 typedef cl_float3 float3; // note: sizeof(cl_float3) != sizeof(float[3])
+#endif
 #include "geometrylib.h" // struct RHeightfield
 
 // All boundaries are heightfields now!
@@ -147,8 +151,8 @@ static MPI_Datatype createMPIBoundaryStruct() {
 	// Real heights[BOUNDARY_SAMPLES];
 	// Real spacings[BOUNDARY_SAMPLES];
 
-	// Note: Real3 is cl_float3 which is 4 floats wide
-	int blockLengths[1] = {(sizeof(cl_float3)/sizeof(float)) + 2*BOUNDARY_SAMPLES};
+	// Note: Real3 is cl_float3 which is 4 floats wide (because of GPU mem alignment)
+	int blockLengths[1] = {(sizeof(float3)/sizeof(float)) + 2*BOUNDARY_SAMPLES};
 	int offsets[1] = {0};
 	MPI_Datatype types[1] = {MPI_FLOAT};
 	MPI_Datatype boundaryStruct;

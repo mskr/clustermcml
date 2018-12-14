@@ -19,6 +19,11 @@ static bool verbose = false;
 static bool very_verbose = false;
 static const std::string VEC = "glm::vec";
 
+/**
+* Use preprocessor to include a vector lib compatible with OpenCL vector functions.
+* Currently including GLM.
+* Note swizzling can cause name collisions: https://glm.g-truc.net/0.9.1/api/a00002.html
+*/
 void includeVectorLib(std::string& src) {
 	std::string lib = "                                     \n\
 		#define GLM_FORCE_SWIZZLE                           \n\
@@ -31,6 +36,10 @@ void includeVectorLib(std::string& src) {
 	src = lib + "\n" + src;
 }
 
+/**
+* Define special OpenCL functions here.
+* Note that some have no meaning in single thread (define dummies for these).
+*/
 void prependDefinitions(std::string& src) {
 	std::string defs = "                                     \n\
 		#include <stdint.h> // uint32_t, uint64_t            \n\
@@ -59,11 +68,13 @@ void prependDefinitions(std::string& src) {
 		using namespace glm;                                 \n\
 		#define float3 vec3                                  \n\
 		#define float2 vec2                                  \n\
-		#define xy xy()                                      \n\
 	";
 	src = defs + "\n\n" + src;
 }
 
+/**
+*
+*/
 void skipNestedParanthesis(std::string& src, int* j, char* c, int* lineCount) {
 	int k = (*j)+1;
 	char d = src[k];
@@ -78,6 +89,9 @@ void skipNestedParanthesis(std::string& src, int* j, char* c, int* lineCount) {
 	*c = src[*j];
 }
 
+/**
+*
+*/
 void skipLineComment(std::string& src, int* j, char* c, int* lineCount) {
 	int k = (*j)+1;
 	char d = src[k];
@@ -91,6 +105,9 @@ void skipLineComment(std::string& src, int* j, char* c, int* lineCount) {
 	*c = src[*j];
 }
 
+/**
+*
+*/
 void skipBlockComment(std::string& src, int* j, char* c, int* lineCount) {
 	int k = (*j);
 	char d = src[k];
@@ -108,6 +125,9 @@ void skipBlockComment(std::string& src, int* j, char* c, int* lineCount) {
 	*c = src[*j];
 }
 
+/**
+*
+*/
 bool validCSymbolCharacter(char a) {
 	return ((a >= 48 && a <= 57/*numbers*/) 
 		|| (a >= 65 && a <= 90/*uppercase*/) 
@@ -115,6 +135,22 @@ bool validCSymbolCharacter(char a) {
 		|| a == 95/*underscore*/);
 }
 
+/**
+* Turn swizzles into function calls, which can be handled much better by GLM.
+* Currently only .xy supported. PLEASE EXTENT!
+*/
+int replaceSwizzling(std::string& src, int i) {
+	if (i > src.length()-3) return i;
+	if (src[i]=='.' && src[i+1]=='x' && src[i+2]=='y') {
+		src.insert(i+3, "()");
+		return i+5; // continue after ()
+	}
+	return i;
+}
+
+/**
+*
+*/
 void replaceVectorTypes(std::string& src) {
 
 	// the cast like operator that comes before CL vector initializations helps when parsing
@@ -126,6 +162,9 @@ void replaceVectorTypes(std::string& src) {
 	int i = 0;
 	b = src[i];
 	while (b != '\0') {
+
+		// Replace .xy by .xy() and set i and b to after ()
+		b = src[i = replaceSwizzling(src, i)];
 
 		// Get preceeding char, ignoring whitespace
 		int lastNonWhitespaceIndex = -1;
@@ -172,10 +211,11 @@ void replaceVectorTypes(std::string& src) {
 				}
 			}
 
-			if (commaCount >= 1) {
+			if (commaCount >= 1) { // Found vector initialization
+				//TODO this will probably also detect if(int i = 0, j = 0;;) as vec2. Prevent this!
 
-				// Detect the cast like operator that comes before CL vector initializations
-				// and extract vector size number
+				// Detect the cast like operator that appears before CL vector initializations
+				// and extract vector size number as char
 				char vecN = 0;
 				if (lastNonWhitespaceIndex >= clVec.length()) {
 					if (src.substr(lastNonWhitespaceIndex - clVec.length() + 1, clVec.length()-2) == clVec.substr(0, clVec.length() - 2)
@@ -184,15 +224,22 @@ void replaceVectorTypes(std::string& src) {
 					}
 				}
 
-				// if we havent found the cast like operator use the comma count to determine vector components
+				// (if cast like operator not found use comma count to determine vector size)
 				if (verbose) std::cout << "Line " << lineCount << ": Found vec" << vecN ? vecN : (commaCount+1);
 				if (verbose) std::cout << " ..." << a << src.substr(i,j-i) << c << "..." << std::endl;
 				if (commaCount == 1 || commaCount == 2 || commaCount == 3) {
-					// This is a vector initialization
+
+					// Insert constructor call before opening paranthesis (position i)
 					const std::string r = VEC + (vecN ? vecN : (char)(48+commaCount+1));
 					src.insert(i, r);
-					i = j + r.length();
-					continue;
+
+					// Continue at closing paranthesis (position j + length of inserted text)
+					i = j + r.length() - 1;
+				} else {
+
+					std::cerr << "Transpiler cannot replace vector of size " << (commaCount+1) << "." << std::endl;
+					std::cerr << "Detected here: " << " ..." << a << src.substr(i,j-i) << c << "..." << std::endl;
+					exit(1);
 				}
 			}
 		}
@@ -201,6 +248,9 @@ void replaceVectorTypes(std::string& src) {
 	}
 }
 
+/**
+*
+*/
 void replaceStructInitializers(std::string& src) {
 	//TODO remove the cast-like operator
 	// consider: typedef struct{ int a,b,c; } Dummy;

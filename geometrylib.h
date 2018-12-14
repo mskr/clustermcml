@@ -53,28 +53,37 @@ struct RHeightfield {
 };
 
 
-/**
-* Because the intersection of line and cone with infinite height
-* h > 0 can be a ray or a line, we use a 'type' value that allows
-* you to decide how to interpret the parameter[] and point[] values.
-*   type  intersect  valid data
-*   0     none       none
-*   1     point      parameter[0] = parameter[1], finite
-*                    point[0] = point[1]
-*   2     segment    parameter[0] < parameter[1], finite
-*                    point[0,1] valid
-*   3     ray        parameter[0] finite, parameter[1] maxReal
-*                    point[0] = rayOrigin, point[1] = lineDirection
-*   4     ray        parameter[0] -maxReal, parameter[1] finite
-*                    point[0] = rayOrigin, point[1] = -lineDirection
-*   5     line       parameter[0] -maxReal, parameter[1] maxReal,
-*                    point[0] = lineOrigin, point[1] = lineDirection
-* If the cone height h is finite, only types 0, 1, or 2 can occur.
+/*
+* Distance of p to plane with origin o and normalized normal n
 */
-struct RayConeIntersectionResult {
-    int type;
-    Real parameter[2];  // Relative to incoming line.
-};
+Real calcPointPlaneDistance(Real3 p, Real3 o, Real3 n) ;
+
+
+/*
+* An intersection routine for rays and planes
+*/
+Real intersectPlane(Real3 pos, Real3 dir, Real3 middle, Real3 normal);
+
+
+/**
+* Get the point on a line that minimizes the distance to another point
+*/
+Real3 projectPointToLine(struct Line3 line, Real3 point);
+
+
+/**
+* Get point on plane that minimizes distance to another point
+* http://immersivemath.com/ila/ch03_dotproduct/ch03.html#ex_dp_ortho_proj_onto_plane
+*/
+Real3 projectPointToPlane(struct Plane3 plane, Real3 point);
+
+
+/**
+* Get point rotated 90 degrees around vector (counter-clockwise).
+* Basically application of rotation matrix with sines and cosines canceled out.
+* https://en.wikipedia.org/wiki/Rotation_matrix#Rotation_matrix_from_axis_and_angle
+*/
+Real3 rotate90PointAroundVector(Real3 vector, Real3 point);
 
 
 /**
