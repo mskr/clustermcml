@@ -419,6 +419,7 @@ Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* 
     const int closestIndex = getConeIndexFromPosition(closestPoint.xy, hfield); 
 
     Real pathLenToIntersection = -1.0f;
+    
     for (int i = closestIndex; i <= farestIndex; i++) {
         const struct Cone3 cone = getConeAtIndex(i, hfield);
         const Real3 lineVec = line.start - line.end;
@@ -426,7 +427,7 @@ Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* 
         Real3 normal = (Real3)(0);
         const Real t = intersectCone(line.start, rayDir, cone, &normal);
         if (t > 0.0 && t <= length(lineVec)) {
-            if (t < pathLenToIntersection || pathLenToIntersection == -1.0) {
+            if (t < pathLenToIntersection || pathLenToIntersection < 0.0) {
                 pathLenToIntersection = t;
                 *outNormal = normal;
             }
@@ -434,9 +435,6 @@ Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* 
     }
 
     return pathLenToIntersection;
-
-    //TODO call this with line instead of ray
-    //TODO populate heightfield structs on CPU side and pass extra spacing buffer to kernel
 }
 
 

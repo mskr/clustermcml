@@ -90,6 +90,7 @@ static PhotonTracker createNewPhotonTracker() {
 static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* outSimCount) {
 	out << "Following info was read from input file \"" << name << "\":\n";
 	*outSimCount = read_simulation_data(name, &simulations, ignoreA?1:0, explicitBoundaries?1:0);
+	assert(*outSimCount > 0);
 }
 
 
