@@ -422,7 +422,7 @@ Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* 
     
     for (int i = closestIndex; i <= farestIndex; i++) {
         const struct Cone3 cone = getConeAtIndex(i, hfield);
-        const Real3 lineVec = line.start - line.end;
+        const Real3 lineVec = line.end - line.start;
         const Real3 rayDir = normalize(lineVec);
         Real3 normal = (Real3)(0);
         const Real t = intersectCone(line.start, rayDir, cone, &normal);
