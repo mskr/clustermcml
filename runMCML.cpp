@@ -555,7 +555,8 @@ static void freeResources() {
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank) {
 	// Read input file with process 0
 	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
-	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, true, &simCount);
+	bool explicitBoundaries = strstr(kernelOptions, "-D EXPLICIT_BOUNDARIES") != NULL;
+	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, explicitBoundaries, &simCount);
 
 	#ifndef NO_GPU
 	broadcastInputData(rank);

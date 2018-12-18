@@ -26,8 +26,9 @@ int main(int nargs, char** args) {
 	#ifdef NO_GPU
 
 	// Expect input file name
-	assert(nargs == 2);
+	assert(nargs >= 2);
 	char* filename = args[1];
+	char* opts = nargs > 2 ? args[2] : "";
 
 	MPI(Init, &nargs, &args);
 	int rank = 0; MPI(Comm_rank, MPI_COMM_WORLD, &rank);
@@ -36,7 +37,7 @@ int main(int nargs, char** args) {
 	if (rank == 0) out << processCount << " processes\n";
 
 	// 1 thread
-	allocCLKernelResources(1, "", filename, rank);
+	allocCLKernelResources(1, opts, filename, rank);
 	// no command queue, no kernel
 	runCLKernel(0, 0, 1, 1, processCount, rank);
 
