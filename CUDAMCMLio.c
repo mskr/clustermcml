@@ -412,12 +412,12 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 		{
 			// Read boundary data (array of height spacing pairs)
 			if (explicitBoundaries) {
-				for (int hIdx = 0; hIdx < 2*BOUNDARY_SAMPLES; hIdx++) {
+				for (int sampleIdx = 0; sampleIdx < 2*BOUNDARY_SAMPLES; sampleIdx++) {
 					int success = 0;
-					if (hIdx % 2 == 0)
-						success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].heights + hIdx);
-					else
-						success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].spacings + hIdx);
+					if (sampleIdx % 2 == 0) // height values at even indices
+						success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].heights + sampleIdx/2);
+					else // spacing values at odd indices
+						success = fscanf(pFile, "%f", (*simulations)[i].boundaries[ii - 1].spacings + (sampleIdx-1)/2);
 					if (!success) { perror(hfieldError); return 0; }
 				}
 			}
@@ -438,12 +438,12 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 
 		// One more boundary
 		if (explicitBoundaries) {
-			for (int hIdx = 0; hIdx < 2*BOUNDARY_SAMPLES; hIdx++) {
+			for (int sampleIdx = 0; sampleIdx < 2*BOUNDARY_SAMPLES; sampleIdx++) {
 				int success = 0;
-				if (hIdx % 2 == 0)
-					success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].heights + hIdx);
+				if (sampleIdx % 2 == 0)
+					success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].heights + sampleIdx/2);
 				else
-					success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].spacings + hIdx);
+					success = fscanf(pFile, "%f", (*simulations)[i].boundaries[n_layers].spacings + (sampleIdx-1)/2);
 				if (!success) { perror(hfieldError); return 0; }
 			}
 		}
