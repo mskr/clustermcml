@@ -64,10 +64,10 @@ static cl_mem* absorptionPerSimulation = 0;
 // Holds photon state for every GPU thread
 static cl_mem stateBuffer = 0;
 
-// Holds photon ages in GPU runs without restart
+// Holds photon ages in GPU runs without restart (for debug)
 static uint32_t* ages;
 
-// Holds random seed for each photon in its current GPU run
+// Holds random seed for each photon in its current GPU run (for debug)
 static uint32_t* seeds;
 
 // Debug buffer can be used to output error messages from GPU
