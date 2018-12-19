@@ -21,9 +21,9 @@ Real calcPointPlaneDistance(Real3 p, Real3 o, Real3 n) {
 */
 Real intersectPlane(Real3 pos, Real3 dir, Real3 middle, Real3 normal) {
     Real a = dot(dir, normal);
-    if (a > -1e-6) return -1.0; // facing away
+    if (a >= 0.0) return -1.0; // facing away
     Real b = dot(middle - pos, normal);
-    if (b > -1e-6) return -1.0; // behind plane
+    if (b >= 0.0) return -1.0; // behind or on plane
     return b / a;
 }
 
