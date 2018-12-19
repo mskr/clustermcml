@@ -2,7 +2,10 @@
 *
 * This code sets up MCML and distributes work on processes and threads.
 *
-* It runs one or more simulations from 1 mci file and produces mco files for each.
+* It triggers a compute kernel until all photons are processed.
+*
+* It takes a single .mci-file with multiple simulations.
+* It produces .mco-files for each simulation.
 *
 *********************************************************************************/
 
@@ -75,6 +78,9 @@ static uint32_t* seeds;
 static cl_mem debugBuffer = 0;
 
 
+/**
+*
+*/
 static PhotonTracker createNewPhotonTracker() {
 	return {
 		0.0f, 0.0f, 0.0f, // start position
@@ -87,9 +93,28 @@ static PhotonTracker createNewPhotonTracker() {
 }
 
 
+/**
+*
+*/
+static void checkBoundaries(Boundary* boundaries, int n) {
+	//TODO
+}
+
+
+/**
+*
+*/
 static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* outSimCount) {
 	out << "Following info was read from input file \"" << name << "\":\n";
-	*outSimCount = read_simulation_data(name, &simulations, ignoreA?1:0, explicitBoundaries?1:0);
+
+	//TODO need indicator in file format to detect and skip boundary lines if no explicit boundaries wanted
+	//TODO throw error if explicit boundaries wanted but not found in file
+	//TODO add support for mixed boundaries, i.e. boundary object can contain either single depth value or heightfield data
+
+	*outSimCount = read_simulation_data(name, &simulations, ignoreA ? 1 : 0, explicitBoundaries ? 1 : 0);
+
+	//TODO check boundaries for disallowed overlaps
+
 	assert(*outSimCount > 0);
 }
 
