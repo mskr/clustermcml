@@ -223,6 +223,7 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 
 
 // control time spent on the GPU in each round
+// note that if this is too big the process might be killed
 #define MAX_ITERATIONS 1000
 
 /**
@@ -279,7 +280,9 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 	float3 dir = (float3)(state->dx, state->dy, state->dz);
 	int currentLayer = state->layerIndex;
 
-	// Simulate a few bounces
+	int disabledBoundary = -1;
+
+	// Simulate MAX_ITERATIONS bounces
 	for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 
@@ -298,7 +301,11 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		float3 normal = (float3)(0); float pathLenToIntersection = 0;
 		Line3 line = { pos, pos + s*dir };
 		int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, &normal, &pathLenToIntersection);
-		if (layerChange != 0) {
+		if (layerChange != 0 && disabledBoundary != max(currentLayer, currentLayer+layerChange)) {
+
+			// In theory, the photon should now be moved exactly onto the boundary. Another collision with the same boundary should thus not be possible in the next step.
+			// Due to floating point inaccuracies, the photon may be moved slightly beyond or before the boundary. Therefore we need to memorize for the next step that this boundary is temporarly disabled for collision.
+			disabledBoundary = max(currentLayer, currentLayer + layerChange);
 
 			// Hop (unfinished part of s can be ignored)
 			pos += dir * pathLenToIntersection;
@@ -310,12 +317,13 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, currentLayer+layerChange, layerCount, nAbove, nBelow, normal, layerChange<0, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, normal);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, currentLayer+layerChange, layerCount,
-				size_r, size_a, delta_r, R_ra, T_ra)) {
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, currentLayer+layerChange, layerCount, size_r, size_a, delta_r, R_ra, T_ra)) {
 					break;
 				}
 			}
 		} else {
+
+			disabledBoundary = -1;
 
 			// Hop
 			pos += dir * s;
