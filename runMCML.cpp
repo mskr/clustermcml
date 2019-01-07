@@ -79,7 +79,7 @@ static cl_mem debugBuffer = 0;
 
 
 /**
-*
+* Get data for photon in its start configuration
 */
 static PhotonTracker createNewPhotonTracker() {
 	return {
@@ -94,7 +94,8 @@ static PhotonTracker createNewPhotonTracker() {
 
 
 /**
-*
+* Check if explicitly defined heightfield boundaries overlap.
+* If so, the boundaries are invalid and the program is terminated.
 */
 static void checkBoundaries(Boundary* boundaries, int n) {
 	//TODO
@@ -102,7 +103,7 @@ static void checkBoundaries(Boundary* boundaries, int n) {
 
 
 /**
-*
+* Read data from mci file into array of simulation structs
 */
 static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* outSimCount) {
 	out << "Following info was read from input file \"" << name << "\":\n";
@@ -119,6 +120,9 @@ static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* 
 }
 
 
+/**
+* Create simulation struct description to enable transfer via MPI
+*/
 static MPI_Datatype createMPISimulationStruct() {
 	// Describing the following data layout:
 	// uint32_t number_of_photons;
@@ -153,6 +157,9 @@ static MPI_Datatype createMPISimulationStruct() {
 }
 
 
+/**
+* Create layer struct description to enable transfer via MPI
+*/
 static MPI_Datatype createMPILayerStruct() {
 	// Describing the following data layout:
 	// float z_min;		// Layer z_min [cm]
@@ -171,6 +178,9 @@ static MPI_Datatype createMPILayerStruct() {
 }
 
 
+/**
+* Create boundary struct description to enable transfer via MPI
+*/
 static MPI_Datatype createMPIBoundaryStruct() {
 	// struct RHeightfield
 	// Real3 center;
@@ -188,6 +198,10 @@ static MPI_Datatype createMPIBoundaryStruct() {
 }
 
 
+/**
+* Transfer all the input structs via MPI to all cluster nodes.
+* This includes simulation data with pointers to layer and boundary data.
+*/
 static void broadcastInputData(int rank) {
 
 	// Broadcast the complex simulation struct piece by piece
@@ -227,6 +241,9 @@ static void broadcastInputData(int rank) {
 }
 
 
+/**
+* Restructure layer and boundary data to be ready for GPU consumption
+*/
 static void setupInputArrays(SimulationStruct sim, int simIndex) {
 
 	// Alloc space for layers and boundaries
@@ -265,6 +282,9 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 }
 
 
+/**
+* Alloc mem for ouput data
+*/
 static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 	// Reflectance buffer
 	int radialBinCount = sim.det.nr;
@@ -278,6 +298,9 @@ static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 }
 
 
+/**
+* Transfer layer and boundary data to GPU
+*/
 static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
 	// Do a blocking write to be safe (but maybe slow)
 
@@ -288,6 +311,9 @@ static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem
 }
 
 
+/**
+* Transfer zero-initialized output arrays to GPU
+*/
 static void initAndUploadOutputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem R, cl_mem A, cl_mem T) {
 	int radialBinCount = sim.det.nr;
 	int angularBinCount = sim.det.na;
@@ -309,6 +335,9 @@ static void initAndUploadOutputArrays(cl_command_queue cmd, SimulationStruct sim
 }
 
 
+/**
+* Get fresnel reflectance at interface of two media with refractive indices n0 and n1
+*/
 static float computeFresnelReflectance(float n0, float n1) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
@@ -320,6 +349,11 @@ static float computeFresnelReflectance(float n0, float n1) {
 }
 
 
+/**
+* Init tracking data for totalThreadCount photons.
+* This includes weight loss through fresnel reflection at first layer and
+* seeding the RNG.
+*/
 static void initPhotonStates(size_t totalThreadCount, float R_specular) {
 	for (unsigned int i = 0; i < totalThreadCount; i++) {
 		PhotonTracker newState = createNewPhotonTracker();
@@ -333,6 +367,10 @@ static void initPhotonStates(size_t totalThreadCount, float R_specular) {
 }
 
 
+/**
+* Restart finished photons while ensuring not to start more than the photon count assigned to this MPI process.
+* This function interates over all totalThreadCount photons (sequentially) to check for zero weight.
+*/
 static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThreadCount, uint32_t* outFinishCount, float R_specular) {
 	for (unsigned int i = 0; i < totalThreadCount; i++) {
 
@@ -370,6 +408,9 @@ static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThre
 }
 
 
+/**
+* Set arguments for CL kernel function
+*/
 static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem layers, cl_mem boundaries, cl_mem R, cl_mem A, cl_mem T) {
 	float nAbove = sim.layers[0].n; // first and last layer have only n initialized...
 	float nBelow = sim.layers[sim.n_layers + 1].n; // ...and represent outer media
@@ -397,6 +438,9 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 }
 
 
+/**
+* Do something with debug data from kernel, e.g. print it
+*/
 static bool handleDebugOutput() {
 	out << '\n';
 	//TODO print everything as hex view until reaching some unique end symbol
@@ -415,6 +459,9 @@ static bool handleDebugOutput() {
 }
 
 
+/**
+* Do simulation on GPU for all photons assigned to this MPI process
+*/
 static void simulate(cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, 
 uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl_event kernelEvent) {
 	assert(photonCount >= totalThreadCount); // this is a non-sensical low photon count
@@ -464,7 +511,9 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 }
 
 
-// Declaration of kernel function to be able to use it from CPU code
+/**
+* Declaration of kernel function to be able to use it from CPU code
+*/
 void mcml(
 	float nAbove,
 	float nBelow,
@@ -482,6 +531,9 @@ void mcml(
 	PhotonTracker* photonStates);
 
 
+/**
+* Do simulation on CPU, for debug purposes
+*/
 static void simulateOnCPU(SimulationStruct sim, Layer* layers, Boundary* boundaries, Weight* R, Weight* A, Weight* T,
 uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 	float nAbove = sim.layers[0].n; // first and last layer have only n initialized...
@@ -517,6 +569,9 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 }
 
 
+/**
+* Transfer output data back from GPU (synchronous transfer)
+*/
 static void downloadOutputArrays(SimulationStruct sim, cl_command_queue cmd, cl_mem R, cl_mem A, cl_mem T) {
 	int radialBinCount = sim.det.nr;
 	int angularBinCount = sim.det.na;
@@ -531,6 +586,9 @@ static void downloadOutputArrays(SimulationStruct sim, cl_command_queue cmd, cl_
 }
 
 
+/**
+* Sum up the weights in the output data over all MPI processes
+*/
 static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem T, Weight* outR, Weight* outA, Weight* outT) {
 	int radialBinCount = sim.det.nr;
 	int angularBinCount = sim.det.na;
@@ -542,6 +600,9 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 }
 
 
+/**
+* Write mco file
+*/
 static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weight* T_ra, cl_event kernelEvent) {
 	uint64_t timeStart = 0, timeEnd = 0;
 	// CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
@@ -554,6 +615,9 @@ static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weigh
 }
 
 
+/**
+* Release memory of everything
+*/
 static void freeResources() {
 	for (int i = 0; i < simCount; i++) {
 		free(simulations[i].layers);
@@ -577,6 +641,9 @@ static void freeResources() {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+/**
+* Setup all the stuff needed for CL+MPI implementation of MCML
+*/
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank) {
 	// Read input file with process 0
 	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
@@ -619,6 +686,9 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 }
 
 
+/**
+* Run all the simulations as specified in mci file
+*/
 void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank) {
 	for (int simIndex = 0; simIndex < simCount; simIndex++) {
 
@@ -687,6 +757,9 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 }
 
 
+/**
+* Get name of kernel function that does MCML photon transport
+*/
 const char* getCLKernelName() {
 	return "mcml";
 }
