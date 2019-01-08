@@ -303,11 +303,9 @@ static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 */
 static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
 	// Do a blocking write to be safe (but maybe slow)
-
 	//TODO can we use async buffer transfers?
-
 	CL(EnqueueWriteBuffer, cmd, layers, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(layers), 0, NULL, NULL);
-	CL(EnqueueWriteBuffer, cmd, boundaries, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(boundaries), 0, NULL, NULL);
+	CL(EnqueueWriteBuffer, cmd, boundaries, CL_TRUE, 0, (sim.n_layers+1)*sizeof(Boundary), CLMEM(boundaries), 0, NULL, NULL);
 }
 
 
@@ -381,10 +379,6 @@ static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThre
 			if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0) { // has it died?
 
 				(*outFinishCount)++;
-
-				if (ages[i] > 14) {
-					out << "\nPhoton finished at age="<<ages[i]<<" with seed="<<seeds[i]<<"\n";
-				}
 
 				// Launch new photon only if next round cannot overachieve
 				if ((*outFinishCount) + totalThreadCount <= processPhotonCount) {
