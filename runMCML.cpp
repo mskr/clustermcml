@@ -735,8 +735,9 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		Weight* totalReflectance = (Weight*)malloc(reflectanceBufferSize);
 		Weight* totalTransmittance = (Weight*)malloc(transmissionBufferSize);
 		Weight* totalAbsorption = (Weight*)malloc(absorptionBufferSize);
-		// reduceOutputArrays(simulations[simIndex], reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex],
-		// 	totalReflectance, totalTransmittance, totalAbsorption);
+		reduceOutputArrays(simulations[simIndex],
+			reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex],
+			totalReflectance, totalAbsorption, totalTransmittance);
 		#else
 		Weight* totalReflectance = (Weight*)CLMEM(reflectancePerSimulation[simIndex]);
 		Weight* totalTransmittance = (Weight*)CLMEM(transmissionPerSimulation[simIndex]);
