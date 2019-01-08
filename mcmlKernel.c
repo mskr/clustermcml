@@ -103,7 +103,7 @@ bool roulette(uint* rng_state, float* photonWeight) {
 * there is an intersection with the boundary in the photon step.
 * Also outputs collision normal and path length to intersection.
 */
-int detectBoundaryCollision(int currentLayer, Line3 line, BoundaryArray boundaries, float3* normal, float* pathLenToIntersection) {
+int detectBoundaryCollision(int currentLayer, struct Line3 line, BoundaryArray boundaries, float3* normal, float* pathLenToIntersection) {
 	// Find intersection with top boundary
 	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer], normal);
 	if (*pathLenToIntersection >= 0) {
@@ -299,7 +299,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 
 		// Test intersection with top and bottom boundaries of current layer
 		float3 normal = (float3)(0); float pathLenToIntersection = 0;
-		Line3 line = { pos, pos + s*dir };
+		struct Line3 line = { pos, pos + s*dir };
 		int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, &normal, &pathLenToIntersection);
 		if (layerChange != 0 && disabledBoundary != max(currentLayer, currentLayer+layerChange)) {
 
