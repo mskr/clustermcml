@@ -49,7 +49,7 @@ clustermcml-windows.exe: main-windows.o runMCML-windows.o clusterlib-windows.o r
 
 # Compile new object
 main-windows.o: main.preprocessed.cpp
-	$(MSVC)/cl main.preprocessed.cpp /c /W3 /Fo"main-windows.o" # Warnings are errors
+	$(MSVC)/cl main.preprocessed.cpp /c /W3 /Fo"main-windows.o"
 
 # Preprocess source
 main.preprocessed.cpp: main.cpp clusterlib.h clmem.h
