@@ -79,6 +79,14 @@ Real3 projectPointToPlane(struct Plane3 plane, Real3 point);
 
 
 /**
+* Get point rotated by angle around vector (counter-clockwise).
+* Basically application of rotation matrix:
+* https://en.wikipedia.org/wiki/Rotation_matrix#Rotation_matrix_from_axis_and_angle
+*/
+Real3 rotatePointAroundVector(float angle, Real3 vector, Real3 point);
+
+
+/**
 * Get point rotated 90 degrees around vector (counter-clockwise).
 * Basically application of rotation matrix with sines and cosines canceled out.
 * https://en.wikipedia.org/wiki/Rotation_matrix#Rotation_matrix_from_axis_and_angle

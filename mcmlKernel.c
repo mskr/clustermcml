@@ -121,7 +121,7 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line, BoundaryArray b
 * update current layer and return if photon left the simulation domain
 * the corresponding detection array is also updated
 */
-bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2,
+bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, float n1, float n2, float3 normal,
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r,
 WeightArray R_ra, WeightArray T_ra) {
@@ -150,13 +150,13 @@ WeightArray R_ra, WeightArray T_ra) {
 		*photonWeight = 0;
 		return true;
 	}
-	// update direction
-	float r = n1 / n2;
-	float e = r * r * (1.0f - cosIncident * cosIncident);
-	(*dir).x = r;
-	(*dir).y = r;
-	//TODO check if this works for all normals!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	(*dir).z = copysign(sqrt(1.0f - e), (*dir).z);
+
+	// update direction according to refraction
+	if (normal.x!=(*dir).x || normal.y!=(*dir).y || normal.z!=(*dir).z) {
+		float angOut = asin(n1/n2*sin(acos(cosIncident))); // Snell's law
+		*dir = rotatePointAroundVector(acos(cosIncident)-angOut, cross(normal, *dir), *dir);
+	}
+
 	return false;
 
 	//TODO compare perf against CUDAMCML, which performs buffer store only when bin changes
@@ -167,7 +167,7 @@ WeightArray R_ra, WeightArray T_ra) {
 * update photon direction
 */
 void reflect(float3* dir, float3 normal) {
-	// mirror dir vector against boundary plane
+	// mirror dir vector against surface normal
 	*dir = *dir - 2.0f * normal * dot(*dir, normal);
 }
 
@@ -250,6 +250,13 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 * a tracker array is maintained which size equals
 * the number of photons that the GPU can simulate
 * in parallel, i.e. the thread count.
+*
+* Model of boundaries and layers:
+*
+* --------------------------------- boundary 0
+*              layer 0
+* --------------------------------- boundary 1
+*               ...
 */
 __kernel void mcml(
 float nAbove, // refractive index above
@@ -317,7 +324,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 			if (decideReflectOrTransmit(&rng_state, dir, layers, currentLayer, currentLayer+layerChange, layerCount, nAbove, nBelow, normal, layerChange<0, &transmitAngle, &cosIncident, &n1, &n2)) {
 				reflect(&dir, normal);
 			} else {
-				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, &photonWeight, &currentLayer, currentLayer+layerChange, layerCount, size_r, size_a, delta_r, R_ra, T_ra)) {
+				if (transmit(pos, &dir, transmitAngle, cosIncident, n1, n2, normal, &photonWeight, &currentLayer, currentLayer+layerChange, layerCount, size_r, size_a, delta_r, R_ra, T_ra)) {
 					break;
 				}
 			}
