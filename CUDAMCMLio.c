@@ -136,9 +136,10 @@ SimulationStruct* sim, clock_t simulation_time)
 
 	// Calculate and write A_l
 	fprintf(pFile_outp,"\nA_l #Absorption as a function of layer. [-]\n");
-	z=0;
+	
 	for(l=1;l<=sim->n_layers;l++)
 	{
+		z=0;
 		temp=0;
 		while(((double)z+0.5)*dz<=sim->layers[l].z_max)
 		{
