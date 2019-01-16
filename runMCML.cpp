@@ -103,11 +103,13 @@ static void checkBoundaries(Boundary* boundaries, int n) {
 
 
 /**
-* Read data from mci file into array of simulation structs
+* Read data from mci file into array of simulation structs.
+* This function just wraps a call to CUDAMCML.
 */
 static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* outSimCount) {
 	out << "Following info was read from input file \"" << name << "\":\n";
 
+	// Do this once photon refraction works for all normals:
 	//TODO need indicator in file format to detect and skip boundary lines if no explicit boundaries wanted
 	//TODO throw error if explicit boundaries wanted but not found in file
 	//TODO add support for mixed boundaries, i.e. boundary object can contain either single depth value or heightfield data
@@ -118,6 +120,10 @@ static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* 
 
 	assert(*outSimCount > 0);
 }
+
+
+//TODO write automatic parameter-combination- and test-script
+//     (also need a way to visualize curves to detect noise, which means that photon count must be increased)
 
 
 /**
@@ -242,7 +248,9 @@ static void broadcastInputData(int rank) {
 
 
 /**
-* Restructure layer and boundary data to be ready for GPU consumption
+* Restructure layer and boundary data to be ready for GPU consumption.
+* This takes data from given SimulationStruct to fill the separate buffers.
+* Buffer handles are held by this module in {layers|boundaries}PerSimulation at the given index.
 */
 static void setupInputArrays(SimulationStruct sim, int simIndex) {
 
@@ -283,7 +291,9 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 
 
 /**
-* Alloc mem for ouput data
+* Alloc mem for ouput data.
+* Array dimensions are taken from given SimulationStruct.
+* Mem handles are stored in {reflectance|absorption|transmittance}PerSimulation at given index.
 */
 static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 	// Reflectance buffer
