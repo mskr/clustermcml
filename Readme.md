@@ -80,7 +80,9 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 
 ## Code TODOs
 
-- Use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs
+- **Allow both types of boundaries (flat and heightfield), choosable on per-boundary basis.**
+
+- **Use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs**
 
 - Consider using -cl-mad-enable, native_log() and other kernel optimizations
 
@@ -121,6 +123,11 @@ Provides convenience methods for running an OpenGL shader with some uniform buff
 The shader runs on a viewport-filling quad and can be edited "live" in the console.
 
 Useful for visualizing simulation outputs.
+
+### geometrylib
+
+Provides geometry-related functions like intersection routines, rotations, projections etc. as pure functions.
+Intended for all the stuff higher level than OpenCL C built-ins like length, distance etc.
 
 ## Project TODOs
 
