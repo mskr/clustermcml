@@ -295,7 +295,8 @@ int readints(int n_ints, int* temp, FILE* pFile) //replace with template?
 
 int ischar(char a)
 {
-	if((a>=(char)65 && a<=(char)90)||(a>=(char)97 && a<=(char)122)) return 1;
+	if((a>=(char)65 && a<=(char)90)/*uppercase*/||(a>=(char)97 && a<=(char)122)/*lowercase*/
+		||(a>=(char)48 && a<=(char)57)/*numbers*/||(a==46)/*period*/) return 1;
 	else return 0;
 }
 
@@ -350,7 +351,9 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 		{
 			(*simulations)[i].begin=ftell(pFile);
 			fgets (mystring , STR_LEN , pFile);
+			printf("%s\n", mystring);
 			ii=sscanf(mystring,"%s %c",str,&AorB);
+			printf("str=%s\n", str);
 			if(feof(pFile)|| ii>2){perror("Error reading output filename");return 0;}
 			if(ii>0)ii=ischar(str[0]);
 		}
