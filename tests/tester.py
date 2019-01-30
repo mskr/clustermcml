@@ -27,19 +27,24 @@ mus = [1, 10, 100] # scattering events per unit
 g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/class3/hg.html
 n = [1.34, 1.4, 1.44] # refractive indices of Caucasian skin (from table 2 in )
 
-PHOTON_MILLIONS = 10
+PHOTON_MILLIONS = .1
 
-boundaries = {
-	'flat50': [0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1]
+boundary_presets = {
+	'flat50': {
+		'description': 'A trivial flat boundary with 50 samples and spacing 0.1 everywhere.',
+		'data': [0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1]
+	}
 }
 
 
 
 
 if len(sys.argv) < 2:
-	print('Usage: python tester.py <mcml executable> -eb <optional list of explicit boundaries*>')
-	print('\n* Preset explicit boundaries are:')
-	for b in boundaries: print(b)
+	print('Usage: python tester.py <mcml executable> <optional executable args> -b <optional list of explicit boundaries (*) -o <output folder>')
+	print('\nThis will run all combinations of some MCML parameter values hardcoded at the top of the script, producing mco files and plots. It relies on another script plotter.py.')
+	print('\nYou can specify an executable in any folder, which it will recognize as its current working directory, e.g. to find kernel files to compile.')
+	print('\n(*) Presets:')
+	for name in boundary_presets: print(name + ' - ' + boundary_presets[name]['description'])
 	print('\nIf no explicit boundaries are specified, implicit flat boundaries are used.')
 	print('If one explicit boundary is specified, it is used above and below one layer.')
 	print('If two explicit boundaries are specified, the first is used above and the second below one layer.')
@@ -48,19 +53,23 @@ if len(sys.argv) < 2:
 
 
 mcml_exe = []
-while len(sys.argv)>1 and sys.argv[1]!='-eb':
+while len(sys.argv)>1 and sys.argv[1]!='-b':
 	mcml_exe.append(sys.argv.pop(1))
 
 explicit_boundaries = []
-if len(sys.argv)>2 and sys.argv[1]=='-eb':
-	for i in range(2, len(sys.argv)):
-		b = sys.argv[i]
+if len(sys.argv)>2 and sys.argv.pop(1)=='-b':
+	while len(sys.argv)>1 and sys.argv[1]!='-o':
+		b = sys.argv.pop(1)
 		try:
-			explicit_boundaries.append(boundaries[b])
+			explicit_boundaries.append(boundary_presets[b]['data'])
 		except KeyError:
 			print('Preset boundary ' + b + ' does not exist')
 			exit()
 
+out_folder = os.getcwd() + '/'
+if len(sys.argv)>2 and sys.argv.pop(1)=='-o':
+	out_folder += sys.argv.pop(1) + '/'
+if not os.path.exists(out_folder): os.makedirs(out_folder)
 
 mcos = []
 
@@ -69,7 +78,7 @@ for mua_i in mua:
 		for g_i in g:
 			for n_i in n:
 
-				mco = str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n.mco'
+				mco = os.path.abspath(out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n.mco')
 
 				mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
 				with open(mci, 'w') as f:
@@ -112,17 +121,24 @@ for mua_i in mua:
 				print('===========================================================')
 				print('[EXEC] ' + str([*mcml_exe, mci]) + ':')
 				result = subprocess.run([*mcml_exe, mci],
+										cwd=os.path.dirname(mcml_exe[0]),
 										stdin=subprocess.DEVNULL,
 										universal_newlines=True)  # Will be "text" in Python 3.7
 				print('===========================================================')
 				try:
 					result.check_returncode()
 					print('[OUTPUT] ' + mco)
-				except CalledProcessError as err:
+				except subprocess.CalledProcessError as err:
 					print('[FAILED] ' + str(err))
+					exit()
 				print('\n\n')
 
 				mcos.append(mco)
+
+				break
+			break
+		break
+	break
 
 
 print('[FINISHED] Now plotting...')
