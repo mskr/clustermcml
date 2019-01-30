@@ -613,8 +613,8 @@ static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weigh
 	// CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
 	out << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
 
-	Write_Simulation_Results(A_rz, T_ra, R_ra, &sim, timeEnd - timeStart);
-
+	assert(Write_Simulation_Results(A_rz, T_ra, R_ra, &sim, timeEnd - timeStart));
+	
 	out << "Output file written: " << sim.outp_filename << "\n";
 }
 

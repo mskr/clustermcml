@@ -244,7 +244,7 @@ SimulationStruct* sim, clock_t simulation_time)
 
 
 	fclose(pFile_outp);
-	return 0;
+	return 1;
 
 }
 
