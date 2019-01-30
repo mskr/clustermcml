@@ -10,43 +10,37 @@ if len(sys.argv) < 2:
 
 Plottable = Enum('Plottable', 'NONE A_l A_z Rd_r Rd_a Tt_r Tt_a A_rz Rd_ra Tt_ra')
 
-plot_i = 1
-
 # This function can plot and save data to a file...
-def saveplot(folder, components, data, resolutions, units):
+def plotToPDF(folder, components, data, resolutions, units):
 
-	global plot_i
-
-	path = ''
+	PLT.figure()
 
 	if len(components) == 2:
-		PLT.figure(plot_i) # TODO could also write data into same plot if axes the same
-		plot_i += 1
 		PLT.plot(data)
+		PLT.title(components[0]+'_'+components[1])
 		PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
 		PLT.ylabel(components[0])
-		PLT.title(components[0]+'_'+components[1])
-		if not os.path.exists(folder): os.makedirs(folder)
 		path = folder + '/' + components[0]+'_'+components[1] + '.pdf'
 	
 	elif len(components) == 3:
-		PLT.figure(plot_i)
-		plot_i += 1
-		
 		PLT.imshow(NUM.matrix(data).transpose())
-		PLT.colorbar()
+		PLT.title(components[0]+'_'+components[1]+'_'+components[2])
 		PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
+		PLT.ylabel(components[2]+' ['+str(resolutions[1])+units[1]+']')
+		PLT.colorbar()
+		path = folder + '/' + components[0]+'_'+components[1]+'_'+components[2] + '.pdf'
 
 		# cut away low pixels to see the few actual data points
 		PLT.ylim(len(data[0])*0.1, 0)
 		PLT.xlim(0, len(data)*0.01)
 
-		PLT.ylabel(components[2]+' ['+str(resolutions[1])+units[1]+']')
-		PLT.title(components[0]+'_'+components[1]+'_'+components[2])
-		if not os.path.exists(folder): os.makedirs(folder)
-		path = folder + '/' + components[0]+'_'+components[1]+'_'+components[2] + '.pdf'
+	else:
+		print('Cannot plot ' + str(len(components)) + '-dimensional data')
 
+	if not os.path.exists(folder): os.makedirs(folder)
 	PLT.savefig(path)
+	PLT.close()
+	
 	print('Written ' + path)
 
 
@@ -185,12 +179,12 @@ for i in range(1, len(sys.argv)):
 			exit()
 
 	folder = mco[0:-4]
-	saveplot(folder, ['A', 'l'], A_l, [1], [''])
-	saveplot(folder, ['A', 'z'], A_z, [dz], ['cm'])
-	saveplot(folder, ['A', 'r', 'z'], A_rz, [dr, dz], ['cm', 'cm'])
-	saveplot(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0], ['cm', 'deg'])
-	saveplot(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0], ['cm', 'deg'])
-	saveplot(folder, ['Rd', 'r'], Rd_r, [dr], ['cm'])
-	saveplot(folder, ['Rd', 'a'], Rd_a, [na/90.0], ['deg'])
-	saveplot(folder, ['Tt', 'r'], Tt_r, [dr], ['cm'])
-	saveplot(folder, ['Tt', 'a'], Tt_a, [na/90.0], ['deg'])
+	plotToPDF(folder, ['A', 'l'], A_l, [1], [''])
+	plotToPDF(folder, ['A', 'z'], A_z, [dz], ['cm'])
+	plotToPDF(folder, ['A', 'r', 'z'], A_rz, [dr, dz], ['cm', 'cm'])
+	plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0], ['cm', 'deg'])
+	plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0], ['cm', 'deg'])
+	plotToPDF(folder, ['Rd', 'r'], Rd_r, [dr], ['cm'])
+	plotToPDF(folder, ['Rd', 'a'], Rd_a, [na/90.0], ['deg'])
+	plotToPDF(folder, ['Tt', 'r'], Tt_r, [dr], ['cm'])
+	plotToPDF(folder, ['Tt', 'a'], Tt_a, [na/90.0], ['deg'])
