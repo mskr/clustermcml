@@ -156,6 +156,7 @@ void replaceVectorTypes(std::string& src) {
 
 	// the cast like operator that comes before CL vector initializations helps when parsing
 	const std::string clVec = "(floatX)";
+	const std::string clVecCustom1 = "(RealX)";
 
 	int lineCount = 1;
 	char a = 0;
@@ -219,8 +220,11 @@ void replaceVectorTypes(std::string& src) {
 				// and extract vector size number as char
 				char vecN = 0;
 				if (lastNonWhitespaceIndex >= clVec.length()) {
-					if (src.substr(lastNonWhitespaceIndex - clVec.length() + 1, clVec.length()-2) == clVec.substr(0, clVec.length() - 2)
-					&& src[lastNonWhitespaceIndex] == clVec[clVec.length()-1]) {
+					if ((src.substr(lastNonWhitespaceIndex - clVec.length() + 1, clVec.length()-2) == clVec.substr(0, clVec.length() - 2)
+						&& src[lastNonWhitespaceIndex] == clVec[clVec.length()-1])
+						||
+						(src.substr(lastNonWhitespaceIndex - clVecCustom1.length() + 1, clVecCustom1.length()-2) == clVecCustom1.substr(0, clVecCustom1.length() - 2)
+						&& src[lastNonWhitespaceIndex] == clVecCustom1[clVecCustom1.length()-1])) {
 						vecN = src[lastNonWhitespaceIndex - 1];
 					}
 				}
