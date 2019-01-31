@@ -125,8 +125,11 @@ bool transmit(float3 pos, float3* dir, float transmitAngle, float cosIncident, f
 float* photonWeight, int* currentLayer, int otherLayer, int layerCount,
 int size_r, int size_a, float delta_r,
 WeightArray R_ra, WeightArray T_ra) {
+
 	*currentLayer = otherLayer;
+
 	if (*currentLayer < 0) {
+
 		// photon escaped at top => record diffuse reflectance
 		// calc indices r,a
 		float r = length(pos.xy);
@@ -134,20 +137,25 @@ WeightArray R_ra, WeightArray T_ra) {
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(R_ra, __global Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&CLMEM_ACCESS_ARRAY2D(R_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		
 		// photon is terminated
 		*photonWeight = 0;
+
 		return true;
+
 	} else if (*currentLayer >= layerCount) {
+		
 		// photon escaped at bottom => record transmittance
-		// calc indices r,a
 		float r = length(pos.xy);
 		int r_i = (int)floor(r / delta_r);
-		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
+		r_i = min(r_i, size_r - 1);
 		float a = transmitAngle / (2.0f * PI) * 360.0f;
 		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_a, r_i, a_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
+		
 		*photonWeight = 0;
+
 		return true;
 	}
 
