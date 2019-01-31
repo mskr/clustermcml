@@ -1,3 +1,7 @@
+#######################################################################################################
+# This python script creates plots from mco files.
+#######################################################################################################
+
 import sys
 import os
 from enum import Enum
@@ -20,6 +24,7 @@ def plotToPDF(folder, components, data, resolutions, units):
 		PLT.title(components[0]+'_'+components[1])
 		PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
 		PLT.ylabel(components[0])
+		PLT.yscale('log')
 		path = folder + '/' + components[0]+'_'+components[1] + '.pdf'
 	
 	elif len(components) == 3:
