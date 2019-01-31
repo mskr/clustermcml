@@ -22,6 +22,9 @@ from os import listdir
 # 7 subcutaneous fat       15  0.03  0.8  1.44
 # The refractive index of air is n=1
 
+
+# Input values to test:
+
 mua = [0.1, 1, 10] # absorption events per unit
 mus = [1, 10, 100] # scattering events per unit
 g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/class3/hg.html
@@ -29,21 +32,35 @@ n = [1.34, 1.4, 1.44] # refractive indices of Caucasian skin (from table 2 in )
 
 PHOTON_MILLIONS = .1
 
-boundary_presets = {
+boundary_presets = { # user can either choose one from here or use implicit flat boundaries
 	'flat50': {
 		'description': 'A trivial flat boundary with 50 samples and spacing 0.1 everywhere.',
 		'data': [0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1]
 	}
 }
 
+dz = 0.01
+dr = 0.01
+nz = 200
+nr = 500
+na = 10
 
 
+
+
+
+
+
+# Interpret options:
 
 if len(sys.argv) < 2:
-	print('Usage: python tester.py <mcml executable> <optional executable args> -b <optional list of explicit boundaries (*) -o <output folder>')
-	print('\nThis will run all combinations of some MCML parameter values hardcoded at the top of the script, producing mco files and plots. It relies on another script plotter.py.')
-	print('\nYou can specify an executable in any folder, which it will recognize as its current working directory, e.g. to find kernel files to compile.')
-	print('\n(*) Presets:')
+	print('Usage: python tester.py <mcml executable> <optional executable args> -b <optional list of explicit boundaries(*)> -o <output folder>')
+	print('\nThis script will run multiple MCML simulations, producing mco files.')
+	print('Plots will be created at the end, for which it relies on another script plotter.py.')
+	print('\nHardcoded at the top of the script you can find lists of values for MCML input parameters.')
+	print('The script will iterate these lists to start a simulation for all possible combinations.')
+	print('\nYou can specify an executable in any folder, which the exe will recognize as its current working directory, e.g. to find kernel files to compile.')
+	print('\n(*) Explicit boundary presets:')
 	for name in boundary_presets: print(name + ' - ' + boundary_presets[name]['description'])
 	print('\nIf no explicit boundaries are specified, implicit flat boundaries are used.')
 	print('If one explicit boundary is specified, it is used above and below one layer.')
@@ -53,11 +70,12 @@ if len(sys.argv) < 2:
 
 
 mcml_exe = []
-while len(sys.argv)>1 and sys.argv[1]!='-b':
+while len(sys.argv)>1 and sys.argv[1]!='-b' and sys.argv[1]!='-o':
 	mcml_exe.append(sys.argv.pop(1))
 
 explicit_boundaries = []
-if len(sys.argv)>2 and sys.argv.pop(1)=='-b':
+if len(sys.argv)>2 and sys.argv[1]=='-b':
+	sys.argv.pop(1)
 	while len(sys.argv)>1 and sys.argv[1]!='-o':
 		b = sys.argv.pop(1)
 		try:
@@ -70,6 +88,14 @@ out_folder = os.getcwd() + '/'
 if len(sys.argv)>2 and sys.argv.pop(1)=='-o':
 	out_folder += sys.argv.pop(1) + '/'
 if not os.path.exists(out_folder): os.makedirs(out_folder)
+
+
+
+
+
+
+
+# Run simulations:
 
 mcos = []
 
@@ -88,8 +114,8 @@ for mua_i in mua:
 					# sim 1
 					f.write(mco+' A\n') # output filename, ASCII
 					f.write(str(PHOTON_MILLIONS*1000000) + '\n') # number of photons
-					f.write('0.01 0.01\n') # detection deltas in cm (dz, dr)
-					f.write('200 500 10\n') # detection array dims (z, r, a)
+					f.write(str(dz)+' '+str(dr)+'\n') # detection deltas in cm (dz, dr)
+					f.write(str(nz)+' '+str(nr)+' '+str(na)+'\n') # detection array dims (z, r, a)
 
 					# number of layers
 					if len(explicit_boundaries) > 1:
@@ -115,6 +141,8 @@ for mua_i in mua:
 
 
 				print('===========================================================')
+				print('[STARTING] Simulation ' + str(len(mcos)+1) + ' of ' + str(len(mua)*len(mus)*len(g)*len(n)))
+				print('===========================================================')
 				print('[INPUT] ' + mci + ':')
 				with open(mci, 'r') as f:
 					print(f.read())
@@ -134,11 +162,6 @@ for mua_i in mua:
 				print('\n\n')
 
 				mcos.append(mco)
-
-				break
-			break
-		break
-	break
 
 
 print('[FINISHED] Now plotting...')
