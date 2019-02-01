@@ -117,6 +117,12 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line, BoundaryArray b
 	return 0;
 }
 
+
+
+
+
+
+
 /**
 * update current layer and return if photon left the simulation domain
 * the corresponding detection array is also updated
@@ -135,8 +141,11 @@ WeightArray R_ra, WeightArray T_ra) {
 		float r = length(pos.xy);
 		int r_i = (int)floor(r / delta_r);
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
-		float a = transmitAngle / (2.0f * PI) * 360.0f;
-		int a_i = (int)floor(a / (90.0f / size_a));
+
+		// float a = transmitAngle / (2.0f * PI) * 360.0f;
+		// int a_i = (int)floor(a / (90.0f / size_a));
+		int a_i = (int)floor(transmitAngle*2.f/PI*size_a); // using the CUDAMCML calculation here, since we are also using their IO (apparantly they convert to degrees during IO)
+
 		add(&CLMEM_ACCESS_ARRAY2D(R_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		
 		// photon is terminated
@@ -150,9 +159,12 @@ WeightArray R_ra, WeightArray T_ra) {
 		float r = length(pos.xy);
 		int r_i = (int)floor(r / delta_r);
 		r_i = min(r_i, size_r - 1);
-		float a = transmitAngle / (2.0f * PI) * 360.0f;
-		int a_i = (int)floor(a / (90.0f / size_a));
-		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
+
+		// float a = transmitAngle / (2.0f * PI) * 360.0f;
+		// int a_i = (int)floor(a / (90.0f / size_a));
+		int a_i = (int)floor(transmitAngle*2.f/PI*size_a);
+
+		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF)); //FIXME: all transmittance lies beyond r=499, GPU version sometimes outputs zeros
 		
 		*photonWeight = 0;
 
@@ -161,7 +173,10 @@ WeightArray R_ra, WeightArray T_ra) {
 
 	// update direction according to refraction
 	if (normal.x!=(*dir).x || normal.y!=(*dir).y || normal.z!=(*dir).z) {
+
 		float angOut = asin(n1/n2*sin(acos(cosIncident))); // Snell's law
+        //FIXME: refraction was already calculated in decideReflectOrTransmit => may have wrong results when testing multiple layers!
+
 		*dir = rotatePointAroundVector(acos(cosIncident)-angOut, cross(normal, *dir), *dir);
 	}
 
@@ -171,13 +186,25 @@ WeightArray R_ra, WeightArray T_ra) {
 	// and uses local variable to add up the weights when same bin is accessed often
 }
 
+
+
+
+
+
+
 /**
 * update photon direction
 */
 void reflect(float3* dir, float3 normal) {
+
 	// mirror dir vector against surface normal
 	*dir = *dir - 2.0f * normal * dot(*dir, normal);
 }
+
+
+
+
+
 
 /**
 * return if photon is reflected at boundary
@@ -185,9 +212,13 @@ void reflect(float3* dir, float3 normal) {
 bool decideReflectOrTransmit(uint* rng_state, float3 dir,
 LayerArray layers, int currentLayer, int otherLayer, int layerCount, float nAbove, float nBelow,
 float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident, float* outN1, float* outN2) {
+
 	float otherN = otherLayer < 0 ? nAbove : otherLayer >= layerCount ? nBelow : layers[otherLayer].n;
 	float cosIncident = dot(normal, -dir);
+
+	// compute fresnel reflectance which depends on incident and transmission/refraction angles
 	float fresnelR, transmitAngle;
+
 	// straight transmission if refractive index is const
 	if (otherN == layers[currentLayer].n) {
 		*outTransmitAngle = 0;
@@ -196,11 +227,17 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 		*outN2 = otherN;
 		return false;
 	}
+
+	// shortcut
 	if (layers[currentLayer].n < otherN && otherN * otherN * (1.0f - cosIncident * cosIncident)) {
 		return true;
 	}
+
+	// compute refraction
 	float incidentAngle = acos(cosIncident);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
+
+	// more shortcuts
 	float cos_crit0 = layers[currentLayer].n > otherN ? sqrt(1.0f - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0f;
 	float cos_crit1 = layers[currentLayer].n > otherN ? sqrt(1.0f - otherN*otherN/(layers[currentLayer].n*layers[currentLayer].n)) : 0.0;
 	if (topOrBottom && cosIncident <= cos_crit0) {
@@ -216,14 +253,20 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 		transmitAngle = PI/2.0f;
 		fresnelR = 1.0f;
 	} else {
+
+		// no valid shortcuts, calculate whole fresnel formula
 		transmitAngle = asin(sinTransmit);
 		fresnelR = 1.0f/2.0f * (pow(sin(incidentAngle - transmitAngle), 2) / pow(sin(incidentAngle + transmitAngle), 2) + pow(tan(incidentAngle - transmitAngle), 2) / pow(tan(incidentAngle + transmitAngle), 2));
 	}
-	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
+
+	// output info to update photon direction
 	*outTransmitAngle = transmitAngle;
 	*outCosIncident = cosIncident;
 	*outN1 = layers[currentLayer].n;
 	*outN2 = otherN;
+
+	// photon is reflected if random threshold exceeded (according to mcml)
+	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
 	return (rand <= fresnelR);
 }
 
