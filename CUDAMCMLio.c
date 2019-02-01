@@ -351,9 +351,7 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 		{
 			(*simulations)[i].begin=ftell(pFile);
 			fgets (mystring , STR_LEN , pFile);
-			printf("%s\n", mystring);
 			ii=sscanf(mystring,"%s %c",str,&AorB);
-			printf("str=%s\n", str);
 			if(feof(pFile)|| ii>2){perror("Error reading output filename");return 0;}
 			if(ii>0)ii=ischar(str[0]);
 		}
