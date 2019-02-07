@@ -358,43 +358,68 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, struct Cone3 cone, Rea
 
 
 /**
+* Get i-th cone in order from inner to outer cones.
+* The (capped) cone shapes arise when rotating heightfield in xy plane.
+* 
+* To get a cone, heighfield is sampled at i and i+1.
+* Cone degenerates to annulus in xy plane, if both height samples are equal.
 *
+* For indices >= number of samples, annulus with infinite outer edge is returned.
+* Buffer overflow is prevented by taking the last sample twice.
 */
 struct Cone3 getConeAtIndex(int i, struct RHeightfield hfield) {
 
     // Get 2 nearest samples
-    Real h0 = hfield.heights[min(i, BOUNDARY_SAMPLES-1)];
-    Real h1 = hfield.heights[min(i+1, BOUNDARY_SAMPLES-1)];
+    const Real h0 = hfield.heights[min(i, BOUNDARY_SAMPLES-1)];
+    const Real h1 = hfield.heights[min(i+1, BOUNDARY_SAMPLES-1)];
 
     // Apply height
-    Real z0 = hfield.center.z - h0;
-    Real z1 = hfield.center.z - h1;
+    const Real z0 = hfield.center.z - h0;
+    const Real z1 = hfield.center.z - h1;
 
     // Calc radial offsets
     Real r0 = 0;
-    for (int j = 0; j < i; j++) r0 += hfield.spacings[j];
-    Real r1 = r0 + hfield.spacings[i];
+    for (int j = 0; j < min(i, BOUNDARY_SAMPLES-1); j++)
+        r0 += hfield.spacings[j];
+    Real r1 = i < BOUNDARY_SAMPLES ? r0 + hfield.spacings[i] : INFINITY;
 
-    // Linear extrapolation
-    Real slope = (z1-z0)/(r1-r0);
-    Real b = z0 - slope*r0;
+    // Degenerate case: cone becomes annulus in xy plane
+    if (h0 == h1) {
+        struct Ray3 mainAxis = {
+            /*origin:*/ (Real3)(hfield.center.xy, z0),
+            /*normal:*/ (Real3)(0) }; // degenerate normal
+        struct Cone3 annulus = { mainAxis,
+             /*angle:*/  0, 
+             /*height:*/ r1,
+             /*cap:*/    r0 };
+        return annulus;
+    }
+
+    // Linear extrapolation to get height of tip
+    const Real slope = (z1-z0)/(r1-r0);
+    const Real b = z0 - slope*r0;
+    const Real coneTip = slope*length(hfield.center.xy) + b;
 
     // Construct capped cone
-    Real coneTip = slope*length(hfield.center.xy) + b;
-    struct Ray3 mainAxis = { (Real3)(hfield.center.xy, coneTip), h1==h0 ? (Real3)(0) : h1>h0 ? (Real3)(0,0,-1):(Real3)(0,0,1) };
-    struct Cone3 theCone = { mainAxis,
+    struct Ray3 mainAxis = { 
+        /*origin:*/ (Real3)(hfield.center.xy, coneTip), 
+        /*normal:*/ h1 > h0 ? (Real3)(0,0,-1) : (Real3)(0,0,1) };
+    struct Cone3 cone = { mainAxis,
          /*angle:*/  atan2(fabs(r1-r0), fabs(h1-h0)), 
-         /*height:*/ h1==h0 ? r1 : max(fabs(coneTip-z0), fabs(coneTip-z1)),
-         /*cap:*/    h1==h0 ? r0 : min(fabs(coneTip-z0), fabs(coneTip-z1)) };
-    return theCone;
+         /*height:*/ max(fabs(coneTip-z0), fabs(coneTip-z1)),
+         /*cap:*/    min(fabs(coneTip-z0), fabs(coneTip-z1)) };
+    return cone;
 }
 
 
 /**
 * Get index of cone from position in radial heightfield.
+* The (capped) cone shapes arise when rotating heightfield in xy plane.
+*
 * Index starts at 0 (most inner cone).
 *
-* Note: Cone shapes arise when rotating heightfield in xy plane around center.
+* Maximum index that can be returned equals number of samples,
+* i.e. is out of bounds. Should be used to handle border case.
 */
 int getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield) {
 
@@ -408,7 +433,7 @@ int getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield) {
     // (clamp to number of samples)
     int i = 0;
     Real s = hfield.spacings[0];
-    while (r > s) {
+    while (s < r) {
         i++;
         if (i < BOUNDARY_SAMPLES)
             s += hfield.spacings[i];
