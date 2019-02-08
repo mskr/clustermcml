@@ -8,7 +8,6 @@ import sys
 import os
 import subprocess
 import tempfile
-from os import listdir
 
 # Modelling the sampling volume for skin blood oxygenation measurements (Meglinsky, 2001)
 # Table 2 Optical properties of skin model (lambda=600nm, Caucasian skin)
@@ -30,20 +29,22 @@ mus = [1, 10, 100] # scattering events per unit
 g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/class3/hg.html
 n = [1.34, 1.4, 1.44] # refractive indices of Caucasian skin (from table 2 in )
 
-PHOTON_MILLIONS = .1
+PHOTON_MILLIONS = 1
 
 boundary_presets = { # user can either choose one from here or use implicit flat boundaries
 	'flat50': {
 		'description': 'A trivial flat boundary with 50 samples and spacing 0.1 everywhere.',
 		'data': [0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1]
-	}
+	} #TODO smaller spacing
 }
 
-dz = 0.01
+dz = 0.01 #TODO more resolution
 dr = 0.01
 nz = 200
 nr = 500
 na = 10
+
+dl = 10 # layer thickness
 
 
 
@@ -54,14 +55,23 @@ na = 10
 # Interpret options:
 
 if len(sys.argv) < 2:
-	print('Usage: python tester.py <mcml executable> <optional executable args> -b <optional list of explicit boundaries(*)> -o <output folder>')
-	print('\nThis script will run multiple MCML simulations, producing mco files.')
-	print('Plots will be created at the end, for which it relies on another script plotter.py.')
+	print('Usage: python tester.py <mcml executable> <optional executable args> -b <optional list of explicit boundaries(*)> -o <optional output folder>')
+	
+	print('\nThis script will run multiple MCML simulations with a user-specified implementation, producing mco files.')
+	print('Plots will be created at the end from the mco files, for which it depends on another script plotter.py.')
+	
+	print('\nYou can specify an executable in any folder, which the exe will recognize as its current working directory, e.g. to find kernel files to compile.')
+	
 	print('\nHardcoded at the top of the script you can find lists of values for MCML input parameters.')
 	print('The script will iterate these lists to start a simulation for all possible combinations.')
-	print('\nYou can specify an executable in any folder, which the exe will recognize as its current working directory, e.g. to find kernel files to compile.')
+	
+	print('\nOutput files have the following naming convention:')
+	print('<number of photons>_<absorption coefficient mua>_<scattering coefficient mus>_<scattering anisotropy g>_<refractive index n>.mco')
+	print('For each mco file, a folder with the same name is created to store the plots.')
+	
 	print('\n(*) Explicit boundary presets:')
 	for name in boundary_presets: print(name + ' - ' + boundary_presets[name]['description'])
+	
 	print('\nIf no explicit boundaries are specified, implicit flat boundaries are used.')
 	print('If one explicit boundary is specified, it is used above and below one layer.')
 	print('If two explicit boundaries are specified, the first is used above and the second below one layer.')
@@ -128,14 +138,14 @@ for mua_i in mua:
 					if len(explicit_boundaries) > 1:
 						for i in range(0, len(explicit_boundaries)-1):
 							f.write(' '.join(str(f) for f in explicit_boundaries[i]) + '\n')
-							f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(10)+'\n')
+							f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl)+'\n')
 						f.write(' '.join(str(f) for f in explicit_boundaries[len(explicit_boundaries)-1]) + '\n')
 					elif len(explicit_boundaries) > 0:
 						f.write(' '.join(str(f) for f in explicit_boundaries[0]) + '\n')
-						f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(10)+'\n')
+						f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl)+'\n')
 						f.write(' '.join(str(f) for f in explicit_boundaries[0]) + '\n')
 					else:
-						f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(10)+'\n') # layer 1
+						f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl)+'\n') # layer 1
 
 					f.write('1.0') # n below
 

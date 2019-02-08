@@ -577,15 +577,14 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 * Transfer output data back from GPU (synchronous transfer)
 */
 static void downloadOutputArrays(SimulationStruct sim, cl_command_queue cmd, cl_mem R, cl_mem A, cl_mem T) {
-	int radialBinCount = sim.det.nr;
-	int angularBinCount = sim.det.na;
-	int depthBinCount = sim.det.nz;
+	int radialBinCount = sim.det.nr, angularBinCount = sim.det.na, depthBinCount = sim.det.nz;
 	size_t reflectanceBufferSize = radialBinCount * angularBinCount * sizeof(Weight);
 	size_t transmissionBufferSize = reflectanceBufferSize;
 	size_t absorptionBufferSize = radialBinCount * depthBinCount * sizeof(Weight);
+
 	CL(EnqueueReadBuffer, cmd, R, CL_FALSE, 0, reflectanceBufferSize, CLMEM(R), 0, NULL, NULL);
-	CL(EnqueueReadBuffer, cmd, T, CL_FALSE, 0, transmissionBufferSize, CLMEM(T), 0, NULL, NULL);
 	CL(EnqueueReadBuffer, cmd, A, CL_FALSE, 0, absorptionBufferSize, CLMEM(A), 0, NULL, NULL);
+	CL(EnqueueReadBuffer, cmd, T, CL_FALSE, 0, transmissionBufferSize, CLMEM(T), 0, NULL, NULL);
 	CL(Finish, cmd);
 }
 
@@ -598,7 +597,7 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 	int angularBinCount = sim.det.na;
 	int depthBinCount = sim.det.nz;
 	// Sum RAT buffers from all processes
-	MPI(Reduce, CLMEM(R), outR, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD); //TODO why can this cause access violation?
+	MPI(Reduce, CLMEM(R), outR, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI(Reduce, CLMEM(T), outT, radialBinCount*angularBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
 	MPI(Reduce, CLMEM(A), outA, radialBinCount*depthBinCount, MPI_WEIGHT_T, MPI_SUM, 0, MPI_COMM_WORLD);
 }
