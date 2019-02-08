@@ -33,6 +33,12 @@ uint32_t wang_hash(uint32_t seed) {
   return seed;
 }
 
+
+
+
+
+// More RNGs that are currently not implemented:
+
 // Mersenne Twister
 // https://us.fixstars.com/opencl/book/OpenCLProgrammingBook/mersenne-twister/
 
@@ -46,7 +52,14 @@ uint32_t wang_hash(uint32_t seed) {
 // Hash by Dave Hoskins
 // https://www.shadertoy.com/view/4djSRW
 
-// Random from original mcml (works only on CPU)
+
+
+
+
+
+// ========================================================================================
+// RNG from original mcml (does not work in CL code since static var is used for RNG state):
+
 #if !defined(__OPENCL_VERSION__)
 #define STANDARDTEST 1
   /* testing program using fixed rnd seed. */
@@ -103,7 +116,7 @@ float ran3(int *idum) {
  *	We found that when idum is too large, ran3 may return 
  *	numbers beyond 0 and 1.
  ****/
-float RandomNum(void) {
+float MCMLRandomNum(void) {
   static int first_time=1;
   static int idum;	/* seed for ran3. */
   if(first_time) {
@@ -123,10 +136,13 @@ float RandomNum(void) {
 #undef STANDARDTEST
 #endif // !defined(__OPENCL_VERSION__)
 
+// ========================================================================================
 
 
 
 
+
+// undo redefines for OpenCL C
 #if defined(__OPENCL_VERSION__)
 #undef const
 #undef uint32_t

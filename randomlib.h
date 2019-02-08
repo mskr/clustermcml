@@ -44,4 +44,4 @@ extern "C" float ran3(int *idum);
 /*
 * Random from original mcml (works only on CPU)
 */
-extern "C" float RandomNum(void);
+extern "C" float MCMLRandomNum(void);

@@ -37,12 +37,33 @@
 #define PI 3.14159265359f
 
 /**
+* get float between 0 and 1
+* just a wrapper function that picks a method from randomlib
+*/
+float getRandom(uint* rng_state) {
+
+	#ifdef NO_GPU
+
+	// use RNG from original MCML, so that our NO_GPU build guarantees exact same behavior
+	return MCMLRandomNum();
+
+	#else
+
+	// use xorshift because it is simple and is considered to have very high quality
+	// prevent being stuck with xorshift(0)==0 by fallback to lcg
+	*rng_state = (*rng_state > 0) ? rand_xorshift(*rng_state) : rand_lcg(*rng_state);
+	return (float)(*rng_state) * RAND_NORM;
+
+	#endif
+}
+
+/**
 * return cos of angle, which is
 * more probable to be small the greater g is and
 * evenly distributed if g == 0
 */
 float sampleHenyeyGreenstein(uint* rng_state, float g) {
-	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
+	float rand = getRandom(rng_state);
 	if (g != 0.0f) {
 		return (1.0f / (2.0f * g)) * (1 + g * g - pow((1 - g * g) / (1 - g + 2 * g * rand), 2));
 	} else {
@@ -88,7 +109,7 @@ float3 spin(float3 dir, float theta, float psi) {
 * return if photon is killed and update its weight (0 == dead)
 */
 bool roulette(uint* rng_state, float* photonWeight) {
-	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
+	float rand = getRandom(rng_state);
 	if (rand <= 0.1f) {
 		*photonWeight *= 10.0f;
 	} else {
@@ -142,9 +163,8 @@ WeightArray R_ra, WeightArray T_ra) {
 		int r_i = (int)floor(r / delta_r);
 		r_i = min(r_i, size_r - 1); // all overflowing values are accumulated at the edges
 
-		// float a = transmitAngle / (2.0f * PI) * 360.0f;
-		// int a_i = (int)floor(a / (90.0f / size_a));
-		int a_i = (int)floor(transmitAngle*2.f/PI*size_a); // using the CUDAMCML calculation here, since we are also using their IO (apparantly they convert to degrees during IO)
+		int a_i = (int)floor(transmitAngle*2.f/PI*size_a); // using the CUDAMCML calculation here, 
+		// since we are also using their IO (apparantly they convert to degrees during IO)
 
 		add(&CLMEM_ACCESS_ARRAY2D(R_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		
@@ -156,15 +176,14 @@ WeightArray R_ra, WeightArray T_ra) {
 	} else if (*currentLayer >= layerCount) {
 		
 		// photon escaped at bottom => record transmittance
+		// calculation analog to reflectance above
 		float r = length(pos.xy);
 		int r_i = (int)floor(r / delta_r);
 		r_i = min(r_i, size_r - 1);
+		
+		int a_i = (int)floor(transmitAngle*2.f/PI*size_a); 
 
-		// float a = transmitAngle / (2.0f * PI) * 360.0f;
-		// int a_i = (int)floor(a / (90.0f / size_a));
-		int a_i = (int)floor(transmitAngle*2.f/PI*size_a);
-
-		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF)); //FIXME: all transmittance lies beyond r=499, GPU version sometimes outputs zeros
+		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		
 		*photonWeight = 0;
 
@@ -266,7 +285,7 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 	*outN2 = otherN;
 
 	// photon is reflected if random threshold exceeded (according to mcml)
-	float rand = (float)(*rng_state = rand_xorshift(*rng_state)) * RAND_NORM;
+	float rand = getRandom(rng_state);
 	return (rand <= fresnelR);
 }
 
@@ -345,9 +364,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		float interactCoeff = layers[currentLayer].absorbCoeff + layers[currentLayer].scatterCoeff;
 
 		// Randomize step length
-		// prevent being stuck with xorshift(0)==0 by fallback to lcg
-		rng_state = (rng_state > 0) ? rand_xorshift(rng_state) : rand_lcg(rng_state);
-		float rand = (float)rng_state * RAND_NORM;
+		float rand = getRandom(&rng_state);
 		float s = -log(rand) / interactCoeff;
 
 		// Uncomment to output some lengths of the first step of a photon (DEBUG mode required)
@@ -409,7 +426,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 			float cosTheta = sampleHenyeyGreenstein(&rng_state, layers[currentLayer].g);
 			// ... and theta has most values at PI/2, which is unintuitive but correct
 			float theta = acos(cosTheta);
-			rand = (float)(rng_state = rand_xorshift(rng_state)) * RAND_NORM;
+			rand = getRandom(&rng_state);
 			float psi = 2 * PI * rand;
 			dir = spin(dir, theta, psi);
 			dir = normalize(dir); // normalize necessary wrt precision problems of float
