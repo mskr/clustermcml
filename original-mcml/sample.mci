@@ -1,0 +1,23 @@
+##########################################
+# Sample.mci
+# 	A template for input files for MCML.
+#	Any characters following a # are ignored as comments
+#	Space lines are also ignored.
+#	Lengths are in cm, mua and mus are in 1/cm.
+#
+#	Multiple runs may be stipulated.
+##########################################
+
+1.0                      	# file version
+1                        	# number of runs
+
+#### SPECIFY DATA FOR RUN 1
+#InParm                    	# Input parameters. cm is used.
+sample.mco 	A	      	# output file name, ASCII.
+1000000
+0.01 0.01
+200 500 10
+1
+1.0
+1.34 0.1 1 0 10
+1.0
