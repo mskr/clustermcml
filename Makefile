@@ -11,12 +11,12 @@
 # Set the following MSVC, MPI and OpenCL paths to your setup:
 
 # Windows runtime (see [4], [5] and [6] for automating this)
-MSVC = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\bin\Hostx86\x86"
-MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128\include" # STL
+MSVC = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.16.27023\bin\Hostx86\x86"
+MSVC_INCLUDE = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.16.27023\include" # STL
 MSVC_INCLUDE_UCRT = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\ucrt" # crtdefs.h
 MSVC_INCLUDE_UM = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\um"
 MSVC_INCLUDE_SHARED = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.16299.0\shared"
-MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.13.26128/lib/x86"
+MSVC_LIB = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Tools\MSVC\14.16.27023/lib/x86"
 MSVC_LIB_UCRT = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.16299.0\ucrt\x86"
 MSVC_LIB_UM = "C:\Program Files (x86)\Windows Kits\8.1\Lib\winv6.3\um\x86"
 
@@ -108,53 +108,55 @@ clmem.preprocessed.cpp: clmem.cpp
 
 ################################################################################
 # Windows "No GPU" build, with debug information
+# Uses only single CPU instead of CPU/GPU cluster
+# Main purpose is to make step debugging possible
 ################################################################################
 
 # Exclude OpenCL as well as MPI
-mcml-nogpu-windows.exe: mcml-nogpu-main-windows.o mcml-nogpu-runMCML-windows.o mcml-nogpu-kernel-windows.o randomlib-windows.o mcml-nogpu-clmem-windows.o
-	$(MSVC)/link mcml-nogpu-main-windows.o mcml-nogpu-runMCML-windows.o mcml-nogpu-kernel-windows.o randomlib-windows.o mcml-nogpu-clmem-windows.o /DEBUG \
+singlemcml-windows.exe: singlemcml-main-windows.o singlemcml-runMCML-windows.o singlemcml-kernel-windows.o randomlib-windows.o singlemcml-clmem-windows.o
+	$(MSVC)/link singlemcml-main-windows.o singlemcml-runMCML-windows.o singlemcml-kernel-windows.o randomlib-windows.o singlemcml-clmem-windows.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
-		/OUT:"mcml-nogpu-windows.exe"
+		/OUT:"singlemcml-windows.exe"
 
 # Compile straight from cpp to object
 # Main
-mcml-nogpu-main-windows.o: main.cpp clmem.h
+singlemcml-main-windows.o: main.cpp clmem.h
 	$(MSVC)/cl main.cpp /c /Zi /W3 \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"mcml-nogpu-main-windows.o"
+		/c /Fo"singlemcml-main-windows.o"
 
-# CLMEM
-mcml-nogpu-clmem-windows.o: clmem.cpp
+# CLMEM also depends on NO_GPU flag, unfortunately
+singlemcml-clmem-windows.o: clmem.cpp
 	$(MSVC)/cl clmem.cpp /c /Zi /W3 \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"mcml-nogpu-clmem-windows.o"
+		/c /Fo"singlemcml-clmem-windows.o"
 
-# RunMCML
-mcml-nogpu-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
+# RunMCML also depends on NO_GPU flag
+singlemcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
 	$(MSVC)/cl runMCML.cpp /c /Zi /W3 \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/c /Fo"mcml-nogpu-runMCML-windows.o"
+		/c /Fo"singlemcml-runMCML-windows.o"
 
 # Kernel
 # 4. Now we can compile the kernel as C++
-mcml-nogpu-kernel-windows.o: mcml-nogpu-kernel-windows.preprocessed.cpp
-	$(MSVC)/cl mcml-nogpu-kernel-windows.preprocessed.cpp /c /Zi /W3 /Fo"mcml-nogpu-kernel-windows.o"
-mcml-nogpu-kernel-windows.preprocessed.cpp: mcmlKernel.preprocessed.c.cpp
-	$(MSVC)/cl mcmlKernel.preprocessed.c.cpp /c /Zi /W3 \
+singlemcml-kernel-windows.o: singlemcml-kernel-windows.preprocessed.cpp
+	$(MSVC)/cl singlemcml-kernel-windows.preprocessed.cpp /c /Zi /W3 /Fo"singlemcml-kernel-windows.o"
+singlemcml-kernel-windows.preprocessed.cpp: mcmlKernel.preprocessed.c.transpiled.cpp
+	$(MSVC)/cl mcmlKernel.preprocessed.c.transpiled.cpp /c /Zi /W3 \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
-		/P /Fi"mcml-nogpu-kernel-windows.preprocessed.cpp"
+		/P /Fi"singlemcml-kernel-windows.preprocessed.cpp"
 
 # 3. Transpile the preprocessed kernel
-mcmlKernel.preprocessed.c.cpp: mcmlKernel.preprocessed.c cl2cpp.exe
+mcmlKernel.preprocessed.c.transpiled.cpp: mcmlKernel.preprocessed.c cl2cpp.exe
 	cl2cpp mcmlKernel.preprocessed.c -v
 
 # 2. Preprocess kernel file to resolve includes
@@ -331,7 +333,7 @@ runSimpson.preprocessed.cpp: runSimpson.cpp
 
 
 clean:
-	del *.exe *.o *.preprocessed.c* *.c.cpp *.bin.* *.pdb *.ilk
+	del *.exe *.o *.preprocessed.c* *.c.transpiled.cpp *.bin.* *.pdb *.ilk
 
 
 

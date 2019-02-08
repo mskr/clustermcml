@@ -277,7 +277,7 @@ int main(int nargs, char* args[]) {
 	replaceVectorTypes(str);
 	prependDefinitions(str);
 	includeVectorLib(str);
-	std::ofstream out(std::string(args[1]) + ".cpp");
+	std::ofstream out(std::string(args[1]) + ".transpiled.cpp");
 	out << str;
 	return 0;
 }
