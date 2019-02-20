@@ -280,8 +280,8 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 	}
 
 	// One more boundary
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.x);
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.y);
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.x) = 0.0f;
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.y) = 0.0f;
 	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.z) = sim.layers[layerCount].z_max;
 	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heights), 
 		sim.boundaries[layerCount].heights, BOUNDARY_SAMPLES);
@@ -650,7 +650,7 @@ static void freeResources() {
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank) {
 	// Read input file with process 0
 	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
-	bool explicitBoundaries = strstr(kernelOptions, "-D EXPLICIT_BOUNDARIES") != NULL;
+	bool explicitBoundaries = strstr(kernelOptions, "-D EXPLICIT_BOUNDARIES") != NULL; //TODO reading this option should also work in singlemcml build
 	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, explicitBoundaries, &simCount);
 
 	#ifndef NO_GPU

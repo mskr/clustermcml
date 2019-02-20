@@ -181,7 +181,7 @@ WeightArray R_ra, WeightArray T_ra) {
 		int r_i = (int)floor(r / delta_r);
 		r_i = min(r_i, size_r - 1);
 		
-		int a_i = (int)floor(transmitAngle*2.f/PI*size_a); 
+		int a_i = (int)floor(transmitAngle*2.f/PI*size_a);
 
 		add(&CLMEM_ACCESS_ARRAY2D(T_ra, __global Weight, size_r, a_i, r_i), (uint)(*photonWeight * 0xFFFFFFFF));
 		
