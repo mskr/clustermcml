@@ -33,7 +33,7 @@ PHOTON_MILLIONS = 1
 
 boundary_presets = { # user can either choose one from here or use implicit flat boundaries
 	'flat50': {
-		'description': 'A trivial flat boundary with 50 samples and spacing 0.1 everywhere.',
+		'description': 'A trivial flat boundary with 50 samples and uniform spacing 0.1.',
 		'data': [0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1]
 	} #TODO smaller spacing
 }
@@ -44,7 +44,7 @@ nz = 200
 nr = 500
 na = 10
 
-dl = 10 # layer thickness
+dl = 0.5 # layer thickness
 
 
 
@@ -166,13 +166,16 @@ for mua_i in mua:
 				try:
 					result.check_returncode()
 					print('[OUTPUT] ' + mco)
+
+					print('[PLOTTING]')
+					subprocess.run(['python', 'plotter.py', mco], stdin=subprocess.DEVNULL, universal_newlines=True)
+
+					mcos.append(mco)
+
 				except subprocess.CalledProcessError as err:
 					print('[FAILED] ' + str(err))
 					exit()
 				print('\n\n')
 
-				mcos.append(mco)
 
-
-print('[FINISHED] Now plotting...')
-result = subprocess.run(['python', 'plotter.py', *mcos], stdin=subprocess.DEVNULL, universal_newlines=True)
+print('[FINISHED] ' + len(mcos) + ' mco files produced')
