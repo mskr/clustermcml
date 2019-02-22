@@ -21,6 +21,8 @@ detectBoundaryCollision.o: detectBoundaryCollision.cpp geometrylib.c.cpp
 		/I"../.." \
 		/I.. \
 		/c /Fo"detectBoundaryCollision.o"
+		
+#TODO geometrylib.c.cpp must be created with cl2cpp.exe from geometrylib.c
 
 clean:
 	del *.exe *.o *.preprocessed.c* *.bin.* *.pdb *.ilk
