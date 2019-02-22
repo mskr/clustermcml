@@ -15,6 +15,8 @@ Currently only Windows.
 3. Run nmake.
 
 Alternative make targets:
+- clustermcml-windows.exe: default
+- singlemcml-windows.exe: no-gpu and single-cpu version for easier debugging (behaves the same as original mcml)
 - clustermcml-windows-debug.exe: output windows debug symbols
 - clustermcml-gl-windows.exe: launch a GL shader for output buffer visualization after the kernel has run
 - clustermcpi-windows.exe: very simple example program that approximates PI using a Monte Carlo method
