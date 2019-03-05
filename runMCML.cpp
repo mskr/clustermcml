@@ -267,9 +267,11 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.y) = 0.0f;
 		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.z) = sim.layers[j].z_min;
 		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heights),
-			sim.boundaries[j-1].heights, BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].heights[0]));
+			sim.boundaries[j-1].heights,
+            BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].heights[0]));
 		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, spacings),
-			sim.boundaries[j-1].spacings, BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].spacings[0]));
+			sim.boundaries[j-1].spacings,
+            BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].spacings[0]));
 
 		// Layer
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, absorbCoeff) = sim.layers[j].mua;
@@ -284,9 +286,12 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.y) = 0.0f;
 	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.z) = sim.layers[layerCount].z_max;
 	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heights), 
-		sim.boundaries[layerCount].heights, BOUNDARY_SAMPLES);
+		sim.boundaries[layerCount].heights,
+        BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].heights[0]));
 	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, spacings),
-		sim.boundaries[layerCount].spacings, BOUNDARY_SAMPLES);
+		sim.boundaries[layerCount].spacings,
+        BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].spacings[0]));
+	// Note: To avoid bugs in this kind of copy operation, there should be size-checked functions in clmem.h
 }
 
 
