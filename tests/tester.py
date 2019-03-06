@@ -29,7 +29,7 @@ mus = [1, 10, 100] # scattering events per unit
 g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/class3/hg.html
 n = [1.34, 1.4, 1.44] # refractive indices of Caucasian skin (from table 2 in )
 
-PHOTON_MILLIONS = 1
+PHOTON_MILLIONS = 10
 
 boundary_presets = { # user can either choose one from here or use implicit flat boundaries
 	'flat50': {
@@ -178,4 +178,4 @@ for mua_i in mua:
 				print('\n\n')
 
 
-print('[FINISHED] ' + len(mcos) + ' mco files produced')
+print('[FINISHED] ' + str(len(mcos)) + ' mco files produced')
