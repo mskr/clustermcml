@@ -14,6 +14,9 @@
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
+#include <fstream>
+#include <string>
+
 // Mem management
 #include "clmem.h" // CLMALLOC_INPUT, CLMALLOC_OUTPUT, CLMEM, CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_AOS
 
@@ -417,6 +420,118 @@ static void restartFinishedPhotons(uint32_t processPhotonCount, size_t totalThre
 }
 
 
+
+// ==========================================================================================
+//TODO fuse the next 4 functions
+
+static uint32_t countFinishedPhotons(cl_command_queue cmd, size_t totalThreadCount) {
+
+	// Download photon states
+	CL(EnqueueReadBuffer, cmd, stateBuffer, CL_FALSE, 0,
+		totalThreadCount * sizeof(PhotonTracker), CLMEM(stateBuffer), 0, NULL, NULL);
+
+	uint32_t count = 0;
+
+	//TODO omp parallel for
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
+		if (!CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead)) {
+			if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0) {
+				count++;
+			}
+		}
+	}
+
+	return count;
+}
+
+static void respawnFinishedPhotons(cl_command_queue cmd, size_t totalThreadCount, float R_specular) {
+
+	//TODO omp parallel for
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
+		if (!CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead)) {
+			if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0) {
+
+					PhotonTracker newState = createNewPhotonTracker();
+					newState.weight -= R_specular;
+
+					// Reuse last rng state
+					newState.rngState = CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, rngState);
+
+					CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+			}
+		}
+	}
+
+	// Upload photon states
+	//TODO since buffer updates are sparse, map could be faster than write in whole
+	CL(EnqueueWriteBuffer, cmd, stateBuffer, CL_FALSE, 0,
+		totalThreadCount * sizeof(PhotonTracker), CLMEM(stateBuffer), 0, NULL, NULL);
+}
+
+static void spawnExactPhotonCount(cl_command_queue cmd, size_t totalThreadCount, float R_specular, uint32_t count) {
+
+	//TODO omp parallel for
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
+
+		if (i >= count) {
+			CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) = 0;
+			CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead) = 1;
+
+		} else {
+
+			PhotonTracker newState = createNewPhotonTracker();
+			newState.weight -= R_specular;
+
+			// Reuse last rng state
+			newState.rngState = CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, rngState);
+
+			CLMEM_ACCESS_ARRAY(CLMEM(stateBuffer), PhotonTracker, i) = newState;
+		}
+	}
+
+	// Upload photon states
+	//TODO since buffer updates are sparse, map could be faster than write in whole
+	CL(EnqueueWriteBuffer, cmd, stateBuffer, CL_FALSE, 0,
+		totalThreadCount * sizeof(PhotonTracker), CLMEM(stateBuffer), 0, NULL, NULL);
+}
+
+static void killFinishedPhotons(cl_command_queue cmd, size_t totalThreadCount) {
+
+	//TODO omp parallel for
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
+		if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0) {
+			CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, isDead) = 1;
+		}
+	}
+
+	// Upload photon states
+	//TODO since buffer updates are sparse, map could be faster than write in whole
+	CL(EnqueueWriteBuffer, cmd, stateBuffer, CL_FALSE, 0,
+		totalThreadCount * sizeof(PhotonTracker), CLMEM(stateBuffer), 0, NULL, NULL);
+}
+
+static uint32_t countActivePhotons(cl_command_queue cmd, size_t totalThreadCount) {
+
+	// Download photon states
+	CL(EnqueueReadBuffer, cmd, stateBuffer, CL_FALSE, 0,
+		totalThreadCount * sizeof(PhotonTracker), CLMEM(stateBuffer), 0, NULL, NULL);
+
+	uint32_t count = 0;
+
+	//TODO omp parallel for
+	for (unsigned int i = 0; i < totalThreadCount; i++) {
+		if (CLMEM_ACCESS_AOS(CLMEM(stateBuffer), PhotonTracker, i, weight) == 0) {
+			count++;
+		}
+	}
+
+	return totalThreadCount - count;
+}
+
+
+// ==========================================================================================
+
+
 /**
 * Set arguments for CL kernel function
 */
@@ -694,6 +809,9 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 }
 
 
+enum { CONTINUE, FINISH, GO };
+
+
 /**
 * Run all the simulations as specified in mci file
 */
@@ -710,30 +828,203 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		// Compute percentage of light that photons lose before entering the first layer
 		float R_specular = computeFresnelReflectance(simulations[simIndex].layers[0].n, simulations[simIndex].layers[1].n);
 
+		// Initialize necessary start parameters
 		initPhotonStates(totalThreadCount, R_specular);
 
-		// Distribute photons on processes
-		uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
-		uint32_t processPhotonCount = targetPhotonCount / processCount;
-		if (rank == 0) { // rank 0 takes the remainder on top
-			processPhotonCount += (targetPhotonCount % processCount);
-		}
-		cl_event kernelEvent = 0;
+
+
 		#ifndef NO_GPU
-		simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular, kernelEvent);
+
+		// ================================
+		// MPI master/worker pattern
+		//
+		// Use mpiexec to full extent:
+		// -lines and -debug options are helpful
+		// (https://docs.microsoft.com/en-us/powershell/high-performance-computing/mpiexec?view=hpc16-ps)
+		//
+		// MPI Send/Recv functions:
+		// (https://docs.microsoft.com/en-us/message-passing-interface/mpi-send-function)
+		// (https://docs.microsoft.com/en-us/message-passing-interface/mpi-recv-function)
+
+		if (rank == 0) { // master
+
+			// Number of unstarted photons
+			uint32_t L = simulations[simIndex].number_of_photons;
+
+			int finishCount = 0;
+
+			std::ofstream file("server.txt");
+			file << "processCount=" << processCount << std::endl;
+
+			for (int i = 1; i < processCount; i++)
+				MPI(Send, 0, 0, MPI_INT, i, GO, MPI_COMM_WORLD);
+			
+			while (finishCount < (processCount-1)) { // not all workers finished?
+
+				MPI_Status status;
+
+				//==================================================================
+				//TODO Investigate why this simple test already fails with timeout
+				// out << "\nHello from server "<<finishCount<<"\n";
+				// MPI(Recv, &finishCount, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+				// finishCount--;
+				// MPI(Send, &finishCount, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+				// if (finishCount == 0) return;
+				// continue;
+				//==================================================================
+
+				// Requested photons
+				uint32_t K;
+
+				file << "\n[Server] Wait for request (L="<<L<<")... " << std::endl;
+				// Wait for request
+				MPI(Recv, &K, 1, MPI_UINT32_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+				file << "done." << std::endl;
+
+				// Respond
+				if (L >= K) {
+					file << "[Server] Send CONTINUE to " << status.MPI_SOURCE << std::endl;
+					MPI(Send, 0, 0, MPI_INT, status.MPI_SOURCE, CONTINUE, MPI_COMM_WORLD);
+					L -= K;
+				} else {
+					file << "[Server] Send FINISH to " << status.MPI_SOURCE << std::endl;
+					MPI(Send, 0, 0, MPI_INT, status.MPI_SOURCE, FINISH, MPI_COMM_WORLD);
+					finishCount++;
+				}
+
+				file << "L = " << L << " | finishCount = " << finishCount << std::endl;
+			}
+
+			// if (L > 0) {
+			// 	out << "master finishes remaining photons L = " << L << "\n";
+
+			// 	spawnExactPhotonCount(cmdQueue, totalThreadCount, R_specular, L);
+
+			// 	while (L > 0) {
+			// 		killFinishedPhotons(cmdQueue, totalThreadCount);
+			// 		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
+			// 		CL(Finish, cmdQueue);
+			// 		L -= countFinishedPhotons(cmdQueue, totalThreadCount);
+			// 		out << "remaining L = " << L << "\n";
+			// 	}
+			// }
+
+			file << "master finished" << std::endl;
+
+		} else { // worker code starts here
+
+			// Communication threshold
+			// 0 means that if only one photon finished a request is made to restart it
+			// higher number means buying lower communication overhead with inactive threads
+			const uint32_t Z = 0;
+
+			std::ofstream file(std::string("log") + std::to_string(rank) + ".txt");
+
+			file << "start client" << std::endl;
+
+			// Current finished photons, i.e. inactive threads
+			uint32_t K = (uint32_t)totalThreadCount;
+
+			bool started = false;
+
+			while (true) {
+
+				MPI_Status status;
+
+				//==================================================================
+				// out<<"\nHello from client K="<<K<<"\n";
+				// MPI(Send, &K, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+				// MPI_Status status;
+				// MPI(Recv, &K, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+				// if (K<=0) return;
+				// else continue;
+				//==================================================================
+
+				if (!started) {
+					file << "K="<<K<<" Z="<<Z<<std::endl;
+					MPI(Recv, 0, 0, MPI_INT, 0, GO, MPI_COMM_WORLD, &status);
+					file << "received GO" << std::endl;
+					started = true;
+				}
+
+				if (K > Z) {
+
+					file << "rank " << rank << " communicating" << std::endl;
+
+					// Request to respawn K photons
+					file << "Request to spawn "<<K<<" photons... " << std::endl;
+					MPI(Send, &K, 1, MPI_UINT32_T, 0, 0, MPI_COMM_WORLD);
+					file << "done." << std::endl;
+
+					// Wait for response
+					MPI(Recv, 0, 0, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+					if (status.MPI_TAG == CONTINUE) {
+
+						file << "CONTINUE" << std::endl;
+
+						// Respawn K photons
+						out << "worker respawns " << K << " photons\n";
+						respawnFinishedPhotons(cmdQueue, totalThreadCount, R_specular);
+						K = 0;
+
+					} else if (status.MPI_TAG == FINISH) {
+
+						file << "FINISH" << std::endl;
+
+						// Finish remaining photons without further requests
+						// (more and more threads will become inactive to meet exact photon count,
+						// which can be optimized by instant restart on GPU with atomic finish counter)
+
+						break;
+
+						bool isFinished = false;
+
+						while (!isFinished) {
+							killFinishedPhotons(cmdQueue, totalThreadCount);
+							CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
+							CL(Finish, cmdQueue);
+							uint32_t tmp = countActivePhotons(cmdQueue, totalThreadCount);
+							file << "worker finishes " << tmp << " photons" << std::endl;
+							isFinished = (tmp == 0);
+						}
+
+						break;
+
+					}
+				}
+
+				file << "rank " << rank << " processing" << std::endl;
+
+				// Continue processing
+				CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
+				CL(Finish, cmdQueue);
+				K += countFinishedPhotons(cmdQueue, totalThreadCount);
+			}
+
+			file << "Worker finished" << std::endl;
+		}
+
 		#else
+
 		simulateOnCPU(simulations[simIndex],
 			(Layer*)CLMEM(layersPerSimulation[simIndex]),
 			(Boundary*)CLMEM(boundariesPerSimulation[simIndex]),
 			(Weight*)CLMEM(reflectancePerSimulation[simIndex]),
 			(Weight*)CLMEM(absorptionPerSimulation[simIndex]),
 			(Weight*)CLMEM(transmissionPerSimulation[simIndex]),
-			processPhotonCount, targetPhotonCount, rank, R_specular);
+			simulations[simIndex].number_of_photons, simulations[simIndex].number_of_photons, rank, R_specular);
+		
 		#endif
+
+
 
 		downloadOutputArrays(simulations[simIndex], cmdQueue, reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
 
+
+
 		#ifndef NO_GPU
+
 		int radialBinCount = simulations[simIndex].det.nr;
 		int angularBinCount = simulations[simIndex].det.na;
 		int depthBinCount = simulations[simIndex].det.nz;
@@ -743,16 +1034,29 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		Weight* totalReflectance = (Weight*)malloc(reflectanceBufferSize);
 		Weight* totalTransmittance = (Weight*)malloc(transmissionBufferSize);
 		Weight* totalAbsorption = (Weight*)malloc(absorptionBufferSize);
+
+		out << "Reduce... ";
 		reduceOutputArrays(simulations[simIndex],
 			reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex],
 			totalReflectance, totalAbsorption, totalTransmittance);
+		out << "done.\n";
+
 		#else
+
 		Weight* totalReflectance = (Weight*)CLMEM(reflectancePerSimulation[simIndex]);
 		Weight* totalTransmittance = (Weight*)CLMEM(transmissionPerSimulation[simIndex]);
 		Weight* totalAbsorption = (Weight*)CLMEM(absorptionPerSimulation[simIndex]);
+
 		#endif
 
-		if (rank == 0) writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance, kernelEvent);
+
+
+		if (rank == 0) {
+			out << "Write to file...\n";
+			writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance, 0);
+		}
+
+
 
 		#ifndef NO_GPU
 		free(totalReflectance);

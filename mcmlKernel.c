@@ -347,7 +347,10 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 {
 	// Get current photon state
 	__global struct PhotonTracker* state = &photonStates[get_global_id(0)];
-	if (state->isDead) {
+
+	// Photon got marked as dead because we are in process of finishing or
+	// photon weight is still zero because it was not restarted to save MPI communication
+	if (state->isDead || state->weight == 0) {
 		// This photon was not restarted because enough are in the pipeline
 		return; // I have no work :(
 	}
