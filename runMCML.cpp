@@ -14,9 +14,6 @@
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
-#include <fstream>
-#include <string>
-
 // Mem management
 #include "clmem.h" // CLMALLOC_INPUT, CLMALLOC_OUTPUT, CLMEM, CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_AOS
 
@@ -585,9 +582,6 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 	// Number of workers finished
 	int finishCount = 0;
 
-	std::ofstream file("server.txt");
-	file << "processCount=" << processCount << std::endl;
-
 	// Tell workers to start
 	// (This is a necessary synchronization step, because 
 	// it turned out that when workers directly start by asking for work
@@ -603,27 +597,20 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 		// Requested photons
 		uint32_t K;
 
-		file << "\n[Server] Wait for request (L="<<L<<")... " << std::endl;
 		// Wait for request
 		MPI(Recv, &K, 1, MPI_UINT32_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-		file << "done." << std::endl;
 
 		// Respond
 		if (L >= K) {
-			file << "[Server] Send CONTINUE to " << status.MPI_SOURCE << std::endl;
 			MPI(Send, 0, 0, MPI_INT, status.MPI_SOURCE, CONTINUE, MPI_COMM_WORLD);
 			L -= K;
 		} else {
-			file << "[Server] Send FINISH to " << status.MPI_SOURCE << std::endl;
 			MPI(Send, 0, 0, MPI_INT, status.MPI_SOURCE, FINISH, MPI_COMM_WORLD);
 			finishCount++;
 		}
-
-		file << "L = " << L << " | finishCount = " << finishCount << std::endl;
 	}
 
 	if (L > 0) {
-		file << "master finishes remaining photons L = " << L << "\n";
 
 		spawnExactPhotonCount(cmdQueue, totalThreadCount, R_specular, L);
 
@@ -632,11 +619,8 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
 			CL(Finish, cmdQueue);
 			L -= countFinishedPhotons(cmdQueue, totalThreadCount);
-			file << "remaining L = " << L << "\n";
 		}
 	}
-
-	file << "master finished" << std::endl;
 }
 
 /**
@@ -654,41 +638,26 @@ static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_ke
 
 	MPI_Status status;
 
-	std::ofstream file(std::string("log") + std::to_string(rank) + ".txt");
-
-	file << "start client" << std::endl;
-
 	// Wait for GO message
-	file << "K="<<K<<" Z="<<Z<<std::endl;
 	MPI(Recv, 0, 0, MPI_INT, 0, GO, MPI_COMM_WORLD, &status);
-	file << "received GO" << std::endl;
 
 	while (true) {
 
 		if (K > Z) {
 
-			file << "rank " << rank << " communicating" << std::endl;
-
 			// Request to respawn K photons
-			file << "Request to spawn "<<K<<" photons... " << std::endl;
 			MPI(Send, &K, 1, MPI_UINT32_T, 0, 0, MPI_COMM_WORLD);
-			file << "done." << std::endl;
 
 			// Wait for response
 			MPI(Recv, 0, 0, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
 			if (status.MPI_TAG == CONTINUE) {
 
-				file << "CONTINUE" << std::endl;
-
 				// Respawn K photons
-				out << "worker respawns " << K << " photons\n";
 				respawnFinishedPhotons(cmdQueue, totalThreadCount, R_specular);
 				K = 0;
 
 			} else if (status.MPI_TAG == FINISH) {
-
-				file << "FINISH" << std::endl;
 
 				// Finish remaining photons without further requests
 				// (more and more threads will become inactive to meet exact photon count,
@@ -701,7 +670,6 @@ static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_ke
 					CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
 					CL(Finish, cmdQueue);
 					uint32_t tmp = countActivePhotons(cmdQueue, totalThreadCount);
-					file << "worker finishes " << tmp << " photons" << std::endl;
 					isFinished = (tmp == 0);
 				}
 
@@ -710,15 +678,11 @@ static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_ke
 			}
 		}
 
-		file << "rank " << rank << " processing" << std::endl;
-
 		// Continue processing
 		CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
 		CL(Finish, cmdQueue);
 		K += countFinishedPhotons(cmdQueue, totalThreadCount);
 	}
-
-	file << "Worker finished" << std::endl;
 }
 
 
