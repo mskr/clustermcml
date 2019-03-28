@@ -9,6 +9,13 @@ import os
 import subprocess
 import tempfile
 
+
+
+
+
+
+
+
 # Modelling the sampling volume for skin blood oxygenation measurements (Meglinsky, 2001)
 # Table 2 Optical properties of skin model (lambda=600nm, Caucasian skin)
 # k Skin layer             mus mua   g    n
@@ -45,6 +52,17 @@ nr = 500
 na = 10
 
 dl = 0.5 # layer thickness
+
+
+
+
+
+
+
+useMPI = True
+mpiDebugLevel = 0
+mpiMachinefile = 'mpi.txt'
+mpiCmd = ['mpiexec', '-debug', str(mpiDebugLevel), '-lines', '-machinefile', mpiMachinefile, '-pwd', 'S>v2zv]08ct/lg4+9{lvi-[bcv-Qc4[|]$ne1NE~']
 
 
 
@@ -116,6 +134,10 @@ for mua_i in mua:
 
 				mco = os.path.abspath(out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n.mco')
 
+				if (os.path.isfile(mco)):
+					print('Skip existing ' + str(mco))
+					continue
+
 				mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
 				with open(mci, 'w') as f:
 					f.write('1.0\n') # file version
@@ -157,11 +179,18 @@ for mua_i in mua:
 				with open(mci, 'r') as f:
 					print(f.read())
 				print('===========================================================')
-				print('[EXEC] ' + str([*mcml_exe, mci]) + ':')
-				result = subprocess.run([*mcml_exe, mci],
-										cwd=os.path.dirname(mcml_exe[0]),
-										stdin=subprocess.DEVNULL,
-										universal_newlines=True)  # Will be "text" in Python 3.7
+
+				pathPair = os.path.split(mcml_exe[0]) #(head, tail) where tail is the last pathname component and head is everything leading up to that
+
+				cmd = [*mcml_exe, mci]
+
+				if useMPI:
+					cmd[0] = pathPair[1]
+					cmd = mpiCmd + cmd
+
+				print('[EXEC] ' + str(cmd) + ':')
+				result = subprocess.run(cmd, cwd=pathPair[0])
+
 				print('===========================================================')
 				try:
 					result.check_returncode()
