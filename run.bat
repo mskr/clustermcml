@@ -1,0 +1,2 @@
+mpiexec -debug 3 /lines /machinefile mpi.txt -pwd "S>v2zv]08ct/lg4+9{lvi-[bcv-Qc4[|]$ne1NE~" clustermcml-windows.exe mcmlKernel.c "-D EXPLICIT_BOUNDARIES" sample.mci
+rem Docs for mpiexec: https://docs.microsoft.com/en-us/powershell/high-performance-computing/mpiexec?view=hpc16-ps
