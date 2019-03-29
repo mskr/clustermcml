@@ -45,12 +45,30 @@ typedef cl_float3 float3; // note: sizeof(cl_float3) != sizeof(float[3])
 #include "mpicheck.h" // MPI macro
 
 // MCML file io
+//TODO Link instead of include + remove printfs
 #include "CUDAMCMLio.h" // SimulationStruct
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
 // Photon weight type
 typedef uint64_t Weight;
 #define MPI_WEIGHT_T MPI_UINT64_T
+
+
+/**
+* MPI message type
+*/
+enum { GO, CONTINUE, FINISH };
+
+
+/**
+* Parallelization strategies
+* UPFRONT_WORK_SPLIT is coarse-grained
+* COORDINATOR_WORKER is fine-grained
+*/
+enum ParallelizationStrategy { UPFRONT_WORK_SPLIT, COORDINATOR_WORKER };
+
+
+const ParallelizationStrategy CURRENT_PAR = ParallelizationStrategy::COORDINATOR_WORKER;
 
 
 // Holds a description of simulations, equivalent to mci file
@@ -565,12 +583,6 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 
 // Fine grained parallelization approach (MPI coordinator/worker pattern)
 
-
-/**
-* MPI message type
-*/
-enum { GO, CONTINUE, FINISH };
-
 /**
 *
 */
@@ -993,13 +1005,25 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 		#ifndef NO_GPU
 
-			if (rank == 0) {
+			if (processCount > 1 && CURRENT_PAR == ParallelizationStrategy::COORDINATOR_WORKER) {
 
-				runMPICoordinator(&simulations[simIndex], cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, processCount);
+				if (rank == 0) {
 
+					runMPICoordinator(&simulations[simIndex], cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, processCount);
+
+				} else {
+
+					runMPIWorker(&simulations[simIndex], cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, rank);
+				}
 			} else {
 
-				runMPIWorker(&simulations[simIndex], cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, rank);
+				uint32_t targetPhotonCount = simulations[simIndex].number_of_photons;
+				uint32_t processPhotonCount = targetPhotonCount / processCount;
+				if (rank == 0) { // rank 0 takes the remainder on top
+					processPhotonCount += (targetPhotonCount % processCount);
+				}
+				simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular, 0);
+
 			}
 
 		#else
