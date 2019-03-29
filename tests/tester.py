@@ -136,6 +136,7 @@ for mua_i in mua:
 
 				if (os.path.isfile(mco)):
 					print('Skip existing ' + str(mco))
+					mcos.append(mco)
 					continue
 
 				mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
@@ -180,31 +181,37 @@ for mua_i in mua:
 					print(f.read())
 				print('===========================================================')
 
-				pathPair = os.path.split(mcml_exe[0]) #(head, tail) where tail is the last pathname component and head is everything leading up to that
+				success = False
 
-				cmd = [*mcml_exe, mci]
+				while not success:
 
-				if useMPI:
-					cmd[0] = pathPair[1]
-					cmd = mpiCmd + cmd
+					pathPair = os.path.split(mcml_exe[0]) #(head, tail) where tail is the last pathname component and head is everything leading up to that
 
-				print('[EXEC] ' + str(cmd) + ':')
-				result = subprocess.run(cmd, cwd=pathPair[0])
+					cmd = [*mcml_exe, mci]
 
-				print('===========================================================')
-				try:
-					result.check_returncode()
-					print('[OUTPUT] ' + mco)
+					if useMPI:
+						cmd[0] = pathPair[1]
+						cmd = mpiCmd + cmd
 
-					print('[PLOTTING]')
-					subprocess.run(['python', 'plotter.py', mco], stdin=subprocess.DEVNULL, universal_newlines=True)
+					print('[EXEC] ' + str(cmd) + ':')
+					result = subprocess.run(cmd, cwd=pathPair[0])
 
-					mcos.append(mco)
+					print('===========================================================')
+					try:
+						result.check_returncode()
+						print('[OUTPUT] ' + mco)
 
-				except subprocess.CalledProcessError as err:
-					print('[FAILED] ' + str(err))
-					exit()
-				print('\n\n')
+						print('[PLOTTING]')
+						subprocess.run(['python', 'plotter.py', mco], stdin=subprocess.DEVNULL, universal_newlines=True)
+
+						mcos.append(mco)
+
+						success = True
+
+					except subprocess.CalledProcessError as err:
+						print('[FAILED] ' + str(err))
+						print('Retrying...')
+					print('\n\n')
 
 
 print('[FINISHED] ' + str(len(mcos)) + ' mco files produced')
