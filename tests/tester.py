@@ -36,8 +36,9 @@ mua = [0.1, 1, 10] # absorption events per unit
 mus = [1, 10, 100] # scattering events per unit
 g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/class3/hg.html
 n = [1.34, 1.4, 1.44] # refractive indices of Caucasian skin (from table 2 in )
+dl = [0.5, 1, 100] # layer thickness
 
-PHOTON_MILLIONS = 1
+PHOTON_MILLIONS = 10
 
 boundary_presets = { # user can either choose one from here or use implicit flat boundaries
 	'flat50': {
@@ -51,8 +52,6 @@ dr = 0.01
 nz = 200
 nr = 500
 na = 10
-
-dl = 0.5 # layer thickness
 
 
 
@@ -141,7 +140,7 @@ COMPARE_MODE_ENABLED = (len(compare_mcml_exe) > 0)
 
 
 
-def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, use_explicit_boundaries):
+def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries):
 	with open(mci, 'w') as f:
 		f.write('1.0\n') # file version
 		f.write('1\n') # number of sims
@@ -163,14 +162,14 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, use_explicit_boundaries):
 		if use_explicit_boundaries and len(explicit_boundaries) > 1:
 			for i in range(0, len(explicit_boundaries)-1):
 				f.write(' '.join(str(f) for f in explicit_boundaries[i]) + '\n')
-				f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl)+'\n')
+				f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n')
 			f.write(' '.join(str(f) for f in explicit_boundaries[len(explicit_boundaries)-1]) + '\n')
 		elif use_explicit_boundaries and len(explicit_boundaries) > 0:
 			f.write(' '.join(str(f) for f in explicit_boundaries[0]) + '\n')
-			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl)+'\n')
+			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n')
 			f.write(' '.join(str(f) for f in explicit_boundaries[0]) + '\n')
 		else:
-			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl)+'\n') # layer 1
+			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer 1
 
 		f.write('1.0') # n below
 
@@ -182,86 +181,99 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, use_explicit_boundaries):
 mcos = []
 
 simcount = 0
-maxsims = str(len(mua)*len(mus)*len(g)*len(n))
+maxsims = str(len(mua)*len(mus)*len(g)*len(n)*len(dl))
 
 for mua_i in mua:
 	for mus_i in mus:
 		for g_i in g:
 			for n_i in n:
+				for dl_i in dl:
 
-				simcount += 1
+					simcount += 1
 
-				C = (2 if COMPARE_MODE_ENABLED else 1)
-				is_compare = 1
+					# Make a compact string containing important mcml config paramenters of current run
+					config_str = out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n_'+str(dl_i)
 
-				for c_i in range(0, C):
+					# Compare mode requires 2 runs, for both executables
+					C = (2 if COMPARE_MODE_ENABLED else 1)
+					is_compare = 1 # index of the comparison run
 
-					mco = out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n'
+					for c_i in range(0, C):
 
-					if c_i==is_compare:
-						mco += '_compare'
+						mco = config_str
 
-					mco = os.path.abspath(mco + '.mco')
-
-					if (os.path.isfile(mco)):
-						print('[SKIP] existing ' + str(mco))
-						continue
-
-					mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
-
-					makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, (len(explicit_boundaries) > 0 and c_i!=is_compare))
-
-					print('===========================================================')
-					print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims))
-					print('===========================================================')
-					print('[INPUT] ' + mci + ':')
-					with open(mci, 'r') as f:
-						print(f.read())
-					print('===========================================================')
-
-					success = False
-
-					while not success:
-
-						pathPair = os.path.split(mcml_exe[0]) #(head, tail) where tail is the last pathname component and head is everything leading up to that
-
-						cwd = pathPair[0]
-
-						cmd = [*mcml_exe, mci]
-
-						if useMPI:
-							cmd[0] = pathPair[1]
-							cmd = mpiCmd + cmd
-
+						# In compare mode append executable basenames to mco for clear differentiation
 						if c_i==is_compare:
-							cmd = [*compare_mcml_exe, mci]
-							cwd = '.'
+							mco += '_' + os.path.splitext(os.path.basename(compare_mcml_exe[0]))[0]
+						elif COMPARE_MODE_ENABLED:
+							mco += '_' + os.path.splitext(os.path.basename(mcml_exe[0]))[0]
 
-						print('[EXEC] ' + str(cmd) + ':')
-						result = subprocess.run(cmd, cwd=cwd)
+						mco = os.path.abspath(mco + '.mco')
+
+						if (os.path.isfile(mco)):
+							print('[SKIP] existing ' + str(mco))
+							mcos.append(mco) # need this later for plotting
+							continue
+
+						mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
+
+						use_explicit_boundaries = (len(explicit_boundaries) > 0 and c_i!=is_compare) # never want explicit boundaries for compare exe
+						makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 
 						print('===========================================================')
-						try:
-							result.check_returncode()
+						print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims))
+						print('===========================================================')
+						print('[INPUT] ' + mci + ':')
+						with open(mci, 'r') as f:
+							print(f.read())
+						print('===========================================================')
 
-							print('[OUTPUT] ' + mco)
+						success = False
+
+						while not success:
+
+							# If using MPI, we actually execute mpiexec and pass mcml executable as argument
+
+							# First part of executable path is used as cwd, second as mpiexec argument
+							pathPair = os.path.split(mcml_exe[0])
+
+							cwd = pathPair[0]
+
+							cmd = [*mcml_exe, mci]
+
+							if useMPI:
+								cmd[0] = pathPair[1]
+								cmd = mpiCmd + cmd
+
+							if c_i==is_compare:
+								cmd = [*compare_mcml_exe, mci]
+								cwd = '.'
+
+							print('[EXEC] ' + str(cmd) + ':')
+							result = subprocess.run(cmd, cwd=cwd)
+
+							print('===========================================================')
+							try:
+								result.check_returncode()
+
+								print('[OUTPUT] ' + mco)
 
 
-							if COMPARE_MODE_ENABLED and c_i==is_compare:
-								print('[PLOTTING]')
-								subprocess.run(['python', 'plotter.py', mcos[len(mcos)-1], mco, '--compare', '-o', mco[0:-4]])
-							elif not COMPARE_MODE_ENABLED:
-								print('[PLOTTING]')
-								subprocess.run(['python', 'plotter.py', mco])
+								if COMPARE_MODE_ENABLED and c_i==is_compare:
+									print('[PLOTTING]', mcos[len(mcos)-1], mco)
+									subprocess.run(['python', 'plotter.py', mcos[len(mcos)-1], mco, '--compare', '-o', config_str])
+								elif not COMPARE_MODE_ENABLED:
+									print('[PLOTTING]')
+									subprocess.run(['python', 'plotter.py', mco])
 
-							mcos.append(mco)
+								mcos.append(mco)
 
-							success = True
+								success = True
 
-						except subprocess.CalledProcessError as err:
-							print('[FAILED] ' + str(err))
-							print('Retrying...')
-						print('\n\n')
+							except subprocess.CalledProcessError as err:
+								print('[FAILED] ' + str(err))
+								print('Retrying...')
+							print('\n\n')
 
 
 print('[FINISHED] ' + str(len(mcos)) + ' mco files produced')
