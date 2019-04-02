@@ -77,7 +77,7 @@ def plotToPDF(folder, components, data, resolutions, units):
 	print('Written ' + path)
 
 #
-def plotAllToPDF(folder, components, data_arrays, resolutions, units):
+def plotAllToPDF(folder, components, data_arrays, resolutions, units, data_names):
 
 	PLT.figure()
 
@@ -88,7 +88,7 @@ def plotAllToPDF(folder, components, data_arrays, resolutions, units):
 
 	if not os.path.exists(folder): os.makedirs(folder)
 
-	PLT.legend([i for i in range(0, len(data_arrays))]) #TODO pass executable names for the legend
+	PLT.legend(data_names)
 
 	PLT.savefig(path)
 	PLT.close()
@@ -248,6 +248,7 @@ def checkOutData(Rd_r, Rd_a, Rd_ra, A_l, A_z, A_rz, Tt_r, Tt_a, Tt_ra, nr, nz, n
 
 ########################################################################################
 
+mcos = []
 
 Rd_r_arrays = []
 Rd_a_arrays = []
@@ -283,6 +284,8 @@ for i in range(0, len(args.files)):
 
 		if args.COMPARE_MODE_ENABLED:
 
+			mcos.append(mco)
+
 			# For now, only interested in 2-dimensional R and T data
 
 			Rd_r_arrays.append(Rd_r)
@@ -314,7 +317,9 @@ for i in range(0, len(args.files)):
 
 if args.COMPARE_MODE_ENABLED:
 
-	plotAllToPDF(args.outFolder, ['Rd', 'r'], Rd_r_arrays, [last_dr], ['cm'])
-	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0], ['deg'])
-	plotAllToPDF(args.outFolder, ['Tt', 'r'], Tt_r_arrays, [dr], ['cm'])
-	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0], ['deg'])
+	mcos = list(map(lambda mco: os.path.split(mco)[1], mcos))
+
+	plotAllToPDF(args.outFolder, ['Rd', 'r'], Rd_r_arrays, [last_dr], ['cm'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0], ['deg'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'r'], Tt_r_arrays, [dr], ['cm'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0], ['deg'], mcos)
