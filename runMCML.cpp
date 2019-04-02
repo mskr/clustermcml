@@ -706,28 +706,6 @@ static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_ke
 // each process runs simulate() independently
 
 
-
-/**
-* Do something with debug data from kernel, e.g. print it
-*/
-static bool handleDebugOutput() {
-	out << '\n';
-	//TODO print everything as hex view until reaching some unique end symbol
-	int n = 2048/4;
-	float sum = 0.0f;
-	for (int k = 0; k < n; k++) { // print as floats
-		float f = ((float*)CLMEM(debugBuffer))[k];
-		sum += f;
-		out << f << " ";
-	}
-	// The gpu-filled debug buffer is great for some statistical analysis
-	out << "sum=" << sum << '\n';
-	out << "average=" << (sum / n) << '\n';
-	out << '\n';
-	return true;
-}
-
-
 /**
 * Do simulation on GPU for all photons assigned to this MPI process
 */
@@ -762,7 +740,6 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 
 		// Wait for async commands to finish
 		CL(Finish, cmd);
-		if (debugBuffer) if (handleDebugOutput()) exit(1);
 
 		restartFinishedPhotons(photonCount, totalThreadCount, &finishedPhotonCount, R_specular);
 
@@ -864,6 +841,7 @@ static void downloadOutputArrays(SimulationStruct sim, cl_command_queue cmd, cl_
 	CL(EnqueueReadBuffer, cmd, R, CL_FALSE, 0, reflectanceBufferSize, CLMEM(R), 0, NULL, NULL);
 	CL(EnqueueReadBuffer, cmd, A, CL_FALSE, 0, absorptionBufferSize, CLMEM(A), 0, NULL, NULL);
 	CL(EnqueueReadBuffer, cmd, T, CL_FALSE, 0, transmissionBufferSize, CLMEM(T), 0, NULL, NULL);
+	if (debugBuffer) CL(EnqueueReadBuffer, cmd, debugBuffer, CL_FALSE, 0, 2048, CLMEM(debugBuffer), 0, NULL, NULL);
 	CL(Finish, cmd);
 }
 
@@ -966,7 +944,12 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 
 	// Debug buffer
 	int debugMode = strstr(kernelOptions, "-D DEBUG") != NULL ? 1 : 0;
-	if (debugMode) debugBuffer = CLMALLOC_OUTPUT(2048, char);
+	if (debugMode) {
+		out << "USING KERNEL IN DEBUG MODE\n";
+		debugBuffer = CLMALLOC_OUTPUT(2048, char);
+		for (unsigned int i = 0; i < 2048; i++)
+			CLMEM_ACCESS_ARRAY(CLMEM(debugBuffer), char, i) = 0;
+	}
 }
 
 
@@ -1041,6 +1024,16 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 
 		downloadOutputArrays(simulations[simIndex], cmdQueue, reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
+
+
+
+		if (debugBuffer) {
+
+			uint32_t sum;
+			MPI(Reduce, CLMEM(debugBuffer), &sum, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+
+			if (rank == 0) out << "\nDEBUG PHOTON COUNT = " << sum << "\n\n";
+		}
 
 
 

@@ -9,7 +9,7 @@
 
 #ifdef DEBUG
 #define DEBUG_BUFFER debugBuffer
-#define DEBUG_BUFFER_ARG ,__global char* DEBUG_BUFFER
+#define DEBUG_BUFFER_ARG , volatile __global char* DEBUG_BUFFER
 #define STR_COPY(src, dst) for(int i=0; src[i]!='\0';i++) dst[i]=src[i];
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x) // The extra level of indirection 

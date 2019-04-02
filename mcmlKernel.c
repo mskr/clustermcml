@@ -441,6 +441,15 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		}
 	}
 
+	// Count finished photons as debug info
+	// Something like this can be used to restart photons on the fly,
+	// without exceeding target count, to avoid inactive threads.
+	#ifdef DEBUG
+	if (photonWeight == 0) {
+		atomic_add((volatile __global uint*)DEBUG_BUFFER, 1); 
+	}
+	#endif
+
 	// Save state for the next round
 	state->x = pos.x; state->y = pos.y; state->z = pos.z;
 	state->dx = dir.x; state->dy = dir.y; state->dz = dir.z;
