@@ -9,6 +9,7 @@ import os
 import subprocess
 import tempfile
 import argparse
+import datetime
 
 
 
@@ -35,8 +36,8 @@ import argparse
 mua = [0.1, 1, 10] # absorption events per unit
 mus = [1, 10, 100] # scattering events per unit
 g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/class3/hg.html
-n = [1.34, 1.4, 1.44] # refractive indices of Caucasian skin (from table 2 in )
-dl = [0.5, 1, 100] # layer thickness
+n = [1.2701, 1.34, 1.44] # refractive indices
+dl = [0.1, 1, 10] # layer thickness
 
 PHOTON_MILLIONS = 10
 
@@ -221,7 +222,7 @@ for mua_i in mua:
 						makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 
 						print('===========================================================')
-						print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims))
+						print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims) + ', t = ' + str(datetime.datetime.now()))
 						print('===========================================================')
 						print('[INPUT] ' + mci + ':')
 						with open(mci, 'r') as f:
