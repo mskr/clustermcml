@@ -52,9 +52,9 @@ int main(int nargs, char** args) {
 	cl_command_queue cmdQueue1;
 	cl_kernel kernel;
 	size_t totalThreadCount, simdThreadCount;
-	initCluster(nargs, args, &processCount, &context, &cmdQueue1, &kernel, &totalThreadCount, &simdThreadCount);
+	ClusterInfo clusterInfo = initCluster(nargs, args, &processCount, &context, &cmdQueue1, &kernel, &totalThreadCount, &simdThreadCount);
 
-	//TODO implement printClusterInfo(info);
+	printClusterInfo(clusterInfo);
 
 	// Get kernel configuration (defines etc.)
 	char* kernelOptions = nargs >= 3 ? args[2] : "";
