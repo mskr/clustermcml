@@ -1,5 +1,38 @@
-/**
+/*********************************************************************************
 *
+* This file contains functions related to MPI and OpenCL.
+* The goal is to simplify making a kernel ready to run on multiple computers
+* with possibly multiple GPUs.
+*
+*********************************************************************************/
+
+// Common case will be 2 GPUs + 1 CPU
+// should use 2 separate contexts
+struct CLDeviceInfo {
+	cl_command_queue queue;
+	int totalThreadCount;
+	int simdThreadCount;
+	int maxSimdThreads;
+};
+struct CLContextInfo {
+	int deviceCount;
+	CLDeviceInfo devices[10];
+	char deviceNames[1280];
+};
+struct ClusterInfo {
+	int processCount;
+
+	char* kernel;
+	
+	int clContextCount;
+	CLContextInfo clContexts[10];
+
+	int platformCount;
+	char platformNames[1280];
+};
+
+/**
+* Returns MPI process ID.
 */
 int getRank();
 
@@ -38,29 +71,16 @@ void createCLCommandQueue(cl_context context, cl_device_id device, cl_command_qu
 /**
 *
 */
-void initCluster(int nargs, char** args, int* outProcessCount, 
+ClusterInfo initCluster(int nargs, char** args, int* outProcessCount, 
 cl_context* outContext, cl_command_queue* outCommandQueue, cl_kernel* outKernel,
 size_t* outTotalThreadCount, size_t* outSimdThreadCount);
 
 /**
 *
 */
-void cleanupCluster(int inputBufferCount, cl_mem* inputBuffers, int outputBufferCount, cl_mem* outputBuffers,
-cl_context context, cl_command_queue cmdQueue, cl_kernel kernel);
+void printClusterInfo(ClusterInfo info);
 
-
-//TODO manage better work distribution:
-struct CLDeviceInfo {
-	cl_command_queue queue;
-	int totalThreadCount;
-	int simdThreadCount;
-};
-struct CLContextInfo {
-	int deviceCount;
-	CLDeviceInfo devices[10];
-};
-struct ClusterInfo {
-	int processCount;
-	int clContextCount;
-	CLContextInfo clContexts[10];
-};
+/**
+*
+*/
+void cleanupCluster(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel);

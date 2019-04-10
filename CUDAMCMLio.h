@@ -32,6 +32,13 @@ struct LayerStruct {
 	float n;			// Refractive index [-]
 };
 
+struct BoundaryStruct {
+	uint32_t isHeightfield;
+	uint32_t n;
+	float* heights;
+	float* spacings;
+};
+
 struct SimulationStruct {
 	uint32_t number_of_photons;
 	uint32_t ignoreAdetection;
@@ -50,6 +57,7 @@ struct SimulationStruct {
 		uint32_t padding; 		// enforce 8 byte alignment
 	} det;
 	LayerStruct* layers;
+	struct BoundaryStruct* boundaries;
 };
 
 #endif //CUDAMCML_H

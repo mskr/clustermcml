@@ -9,10 +9,12 @@
 #include <fstream> // std::ifstream, std::ofstream
 
 // Own
+#include "clusterlib.h"
 #include "Log.h"
 #include "clerr2str.h"
 #define DEBUG
-#include "clcheck.h"
+#include "clcheck.h" // CL macro
+#include "mpicheck.h" // MPI macro
 
 // Interfaces for external code
 const char* getCLKernelName();
@@ -61,7 +63,7 @@ void readCLSourceCode(char* kernelfile, char** outsrc, size_t* outlen) {
 	std::ifstream kfilestream(kfilepath, std::fstream::in | std::ifstream::binary);
 	if (!kfilestream.is_open()) {
 		out << "Could not open kernel file \"" << kernelfile << "\"." << '\n';
-		MPI_Abort(MPI_COMM_WORLD, 1);
+		MPI(Abort, MPI_COMM_WORLD, 1);
 	}
 	size_t kernellen = 0;
 	struct _stat kfilestat;
@@ -153,12 +155,12 @@ void writeCLByteCode(char* kernelfile, cl_program program, cl_uint devicecount, 
 *
 */
 void broadcastCLSourceCode(char** src, size_t* len) {
-	MPI_Bcast(len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+	MPI(Bcast, len, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
 	if (rank_ != 0) {
 		char* s = new char[*len];
 		*src = s;
 	}
-	MPI_Bcast(*src, (int)*len, MPI_CHAR, 0, MPI_COMM_WORLD);
+	MPI(Bcast, *src, (int)*len, MPI_CHAR, 0, MPI_COMM_WORLD);
 }
 
 /**
@@ -270,96 +272,152 @@ void usage()  {
 	out << "Argument 1: OpenCL kernel file" << '\n';
 	out << "Argument 2 (optional): OpenCL compiler options" << '\n';
 	out << "Argument 3 (optional): Options for " << getCLKernelName() << '\n';
-	MPI_Abort(MPI_COMM_WORLD, 1);
+	MPI(Abort, MPI_COMM_WORLD, 1);
 }
 
 /**
 *
 */
-void initCluster(int nargs, char** args, int* outProcessCount, 
+ClusterInfo initCluster(int nargs, char** args, int* outProcessCount, 
 cl_context* outContext, cl_command_queue* outCommandQueue, cl_kernel* outKernel,
 size_t* outTotalThreadCount, size_t* outSimdThreadCount) {
+
+	ClusterInfo info;
+	CLContextInfo ctxInfo;
+	CLDeviceInfo deviceInfo;
+
 	if(nargs < 2) usage();
+
 	char* kernelfile = args[1];
 	char* cl_compiler_options = nargs >= 3 ? args[2] : "";
-	MPI_Init(&nargs, &args);
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
+	MPI(Init, &nargs, &args);
+	MPI(Comm_rank, MPI_COMM_WORLD, &rank_);
 
 	cl_uint deviceCount, platformCount;
-	char deviceNames[1280];
-	char platformNames[1280];
 	cl_context context;
-	createCLContext(&context, &deviceCount, deviceNames, &platformCount, platformNames, 1280);
+	createCLContext(&context, &deviceCount, ctxInfo.deviceNames, &platformCount, info.platformNames, 1280);
 	if(nargs < 2) usage();
 	size_t len;
 	if (rank_ == 0) {
-		// Only main process should do I/O
-		out << platformCount << " CL platforms: " << platformNames << '\n';
-		out << deviceCount << " CL devices: " << deviceNames << '\n';
 		readCLSourceCode(kernelfile, &src_, &len);
 	}
 	broadcastCLSourceCode(&src_, &len);
-	char compilationErrors[4096];
+	char compilationErrors[16384];
 	compilationErrors[0] = '\0';
-	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 4096);
+	compileCLSourceCode(cl_compiler_options, src_, len, context, devices_, deviceCount, &program_, compilationErrors, 16384);
 	if (rank_ == 0) {
 		if (compilationErrors[0] != '\0') {
+			out << "CL Errors (if you don't see any increase array size and recompile):\n";
 			out << compilationErrors << '\n' << Log::flush;
-			MPI_Abort(MPI_COMM_WORLD, 1);
+			MPI(Abort, MPI_COMM_WORLD, 1);
 		}
-		writeCLByteCode(kernelfile, program_, deviceCount, deviceNames);
+		writeCLByteCode(kernelfile, program_, deviceCount, ctxInfo.deviceNames);
 	}
-	createCLCommandQueue(context, devices_[0], outCommandQueue);
-	MPI_Comm_size(MPI_COMM_WORLD, outProcessCount);
+
+	cl_command_queue queue;
+	createCLCommandQueue(context, devices_[0], &queue);
+	*outCommandQueue = queue;
+
+	int processCount;
+	MPI(Comm_size, MPI_COMM_WORLD, &processCount);
+	*outProcessCount = processCount;
+
+
 	/*****************************************************************************************************************
-	// some of the gpu threads share the same register memory and L1 cache, forming "multiprocessors"
-	// CL_DEVICE_MAX_COMPUTE_UNITS == number of multiprocessors
-	// work groups are definitely inside a multiprocessor
-	// the more registers a kernel uses, the smaller a work group should be (less threads)
-	// CL_DEVICE_MAX_WORK_GROUP_SIZE == maximum threads in a multiprocessor
-	// CL_KERNEL_WORK_GROUP_SIZE == threads of a kernel that fit in a multiprocessor
-	// there is no guarantee that the threads will run in parallel
-	// Nvidia warps and AMD wavefronts are the subsets of a multiprocessor that share the same instruction dispatcher
-	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE == warp/wavefront size
+	// Notes on GPU properties that can be queried through OpenCL:
+	//
+	// TL;DR: Multiprocessors contain work groups, which contain warps/wavefronts, which contain SIMD threads.
+	//
+	// Some of the GPU threads share the same register memory and L1 cache, forming "multiprocessors".
+	// => CL_DEVICE_MAX_COMPUTE_UNITS == number of multiprocessors
+	// Work groups are definitely inside a multiprocessor.
+	// The more registers a kernel uses, the smaller a work group should be (less threads).
+	// => CL_DEVICE_MAX_WORK_GROUP_SIZE == maximum threads in a multiprocessor
+	// => CL_KERNEL_WORK_GROUP_SIZE == threads of a kernel that fit in a multiprocessor
+	// There is no guarantee that the threads will run in parallel.
+	// Nvidia warps and AMD wavefronts are the subsets of a multiprocessor that share the same instruction dispatcher.
+	// => CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE == warp/wavefront size
 	// 
 	//                                              | ATI Radeon 5850   | Intel Graphics 4600   | NVIDIA GTX 1080   |
 	// --------------------------------------------------------------------------------------------------------------
-	// CL_DEVICE_MAX_COMPUTE_UNITS                  | 18                |
-	// CL_DEVICE_MAX_WORK_GROUP_SIZE                | 256               |
-	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE | 64                |
+	// CL_DEVICE_MAX_COMPUTE_UNITS                  | 18                |                       | 20
+	// CL_DEVICE_MAX_WORK_GROUP_SIZE                | 256               |                       | 1024
+	// CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE | 64                |                       | 32
 	*****************************************************************************************************************/
-	cl_kernel kernel = CLCREATE(Kernel, program_, getCLKernelName());
-	size_t warpSize;
-	CL(GetKernelWorkGroupInfo, kernel, devices_[0], CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t), &warpSize, NULL);
-	size_t simdThreadCount;
-	CL(GetKernelWorkGroupInfo, kernel, devices_[0], CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &simdThreadCount, NULL);
-	simdThreadCount -= simdThreadCount % warpSize;
+	
 	cl_uint multiprocessorCount;
 	CL(GetDeviceInfo, devices_[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &multiprocessorCount, NULL);
+
+	size_t maxSimdThreads;
+	CL(GetDeviceInfo, devices_[0], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(cl_uint), &maxSimdThreads, NULL);
+	
+	cl_kernel kernel = CLCREATE(Kernel, program_, getCLKernelName());
+	
+	size_t warpSize;
+	CL(GetKernelWorkGroupInfo, kernel, devices_[0], CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t), &warpSize, NULL);
+	
+	size_t simdThreadCount;
+	CL(GetKernelWorkGroupInfo, kernel, devices_[0], CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &simdThreadCount, NULL);
+	
+	simdThreadCount -= simdThreadCount % warpSize;
 	size_t totalThreadCount = multiprocessorCount * simdThreadCount;
+
 	*outContext = context;
 	*outKernel = kernel;
 	*outSimdThreadCount = simdThreadCount;
 	*outTotalThreadCount = totalThreadCount;
+
+	deviceInfo.queue = queue;
+	deviceInfo.totalThreadCount = totalThreadCount;
+	deviceInfo.simdThreadCount = simdThreadCount;
+	deviceInfo.maxSimdThreads = maxSimdThreads;
+	ctxInfo.deviceCount = deviceCount;
+	ctxInfo.devices[0] = deviceInfo;
+	//TODO fill other DeviceInfos
+	info.processCount = processCount;
+	info.kernel = kernelfile;
+	info.clContextCount = 1;
+	info.clContexts[0] = ctxInfo;
+	info.platformCount = platformCount;
+
 	initialized_ = true;
+
+	return info;
 }
 
 /**
 *
 */
-void cleanupCluster(int inputBufferCount, cl_mem* inputBuffers, int outputBufferCount, cl_mem* outputBuffers,
-cl_context context, cl_command_queue cmdQueue, cl_kernel kernel) {
+void printClusterInfo(ClusterInfo info) {
+	if (rank_ == 0) { // Only main process should do I/O
+		out << "ClusterInfo\n";
+		out << "===========\n";
+		out << "Kernel: " << info.kernel << '\n';
+		out << info.processCount << " MPI processes\n";
+		out << info.platformCount << " CL platforms: " << info.platformNames << '\n';
+		out << info.clContextCount << " CL contexts:\n";
+		for (unsigned int i = 0; i < info.clContextCount; i++) {
+			out << "  " << info.clContexts[i].deviceCount << " devices (" << info.clContexts[i].deviceNames << "):\n";
+			for (unsigned int j = 0; j < 1/*info.clContexts[i].deviceCount*/; j++) {
+				CLDeviceInfo d = info.clContexts[i].devices[j];
+				out << "    " << d.simdThreadCount << " of " << d.maxSimdThreads << " SIMD threads due to kernel's register usage.\n";
+			}
+		}
+		out << '\n';
+	}
+}
+
+/**
+*
+*/
+void cleanupCluster(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel) {
 	assert(initialized_);
-	for (int i = 0; i < inputBufferCount; i++)
-		CL(ReleaseMemObject, inputBuffers[i]);
-	for (int i = 0; i < outputBufferCount; i++)
-		CL(ReleaseMemObject, outputBuffers[i]);
 	CL(ReleaseKernel, kernel);
 	CL(ReleaseProgram, program_);
 	CL(ReleaseCommandQueue, cmdQueue);
 	CL(ReleaseContext, context);
 	delete[] src_; // allocated in readCLSourceCode
 	delete[] devices_; // allocated in createCLContext
-	MPI_Finalize();
+	MPI(Finalize);
 	initialized_ = false;
 }

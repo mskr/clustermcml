@@ -1,11 +1,8 @@
-// Following Nathan Reed's article:
-// http://reedbeta.com/blog/quick-and-easy-gpu-random-numbers-in-d3d11/
-// PRNGs are designed to go deep, i.e. have good distributions when sequentially updating state
-// Hashes are designed to go wide, i.e. have good distributions across initial seeds
-// Using thread index as seed, hashes map better to the GPU
-// Hashed thread index can also be used as seed for the PRNGs
-// Caution: do not initialize xorshift with 0 as the sequence stays 0
-// Wang hash returns 0 for seed==61
+// Need redefines to make the C source use OpenCL C terminology.
+#if defined(__OPENCL_VERSION__)
+#define const __constant // Warning: generally const != __constant in OpenCL
+#define uint32_t uint
+#endif
 
 // For normalized random number in [0, 1) use: (float)rng_state * RAND_NORM
 // rng_state can be max 0xFFFFFFFF==4294967295 => rand in [0,1)
@@ -36,6 +33,12 @@ uint32_t wang_hash(uint32_t seed) {
   return seed;
 }
 
+
+
+
+
+// More RNGs that are currently not implemented:
+
 // Mersenne Twister
 // https://us.fixstars.com/opencl/book/OpenCLProgrammingBook/mersenne-twister/
 
@@ -49,8 +52,15 @@ uint32_t wang_hash(uint32_t seed) {
 // Hash by Dave Hoskins
 // https://www.shadertoy.com/view/4djSRW
 
-// Random from original mcml (works only on CPU)
-#ifdef CL2CPU
+
+
+
+
+
+// ========================================================================================
+// RNG from original mcml (does not work in CL code since static var is used for RNG state):
+
+#if !defined(__OPENCL_VERSION__)
 #define STANDARDTEST 1
   /* testing program using fixed rnd seed. */
 /***********************************************************
@@ -106,7 +116,7 @@ float ran3(int *idum) {
  *	We found that when idum is too large, ran3 may return 
  *	numbers beyond 0 and 1.
  ****/
-float RandomNum(void) {
+float MCMLRandomNum(void) {
   static int first_time=1;
   static int idum;	/* seed for ran3. */
   if(first_time) {
@@ -124,4 +134,16 @@ float RandomNum(void) {
   return( (float)ran3(&idum) );
 }
 #undef STANDARDTEST
-#endif // CL2CPU
+#endif // !defined(__OPENCL_VERSION__)
+
+// ========================================================================================
+
+
+
+
+
+// undo redefines for OpenCL C
+#if defined(__OPENCL_VERSION__)
+#undef const
+#undef uint32_t
+#endif

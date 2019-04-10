@@ -20,10 +20,11 @@
 #include <float.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
 
-#include "CUDAMCML.h"
+#include "CUDAMCMLio.h"
 
-int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
+static int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreAdetection)
 {
 
 	int unknown_argument;
@@ -50,7 +51,7 @@ int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* ignoreA
 	return 0;
 }
 
-int Write_Simulation_Results(unsigned long long* A_rz, unsigned long long* Tt_ra, unsigned long long* Rd_ra,
+static int Write_Simulation_Results(unsigned long long* A_rz, unsigned long long* Tt_ra, unsigned long long* Rd_ra,
 SimulationStruct* sim, clock_t simulation_time)
 {
 	FILE* pFile_inp;
@@ -136,9 +137,10 @@ SimulationStruct* sim, clock_t simulation_time)
 
 	// Calculate and write A_l
 	fprintf(pFile_outp,"\nA_l #Absorption as a function of layer. [-]\n");
-	z=0;
+	
 	for(l=1;l<=sim->n_layers;l++)
 	{
+		z=0;
 		temp=0;
 		while(((double)z+0.5)*dz<=sim->layers[l].z_max)
 		{
@@ -243,18 +245,18 @@ SimulationStruct* sim, clock_t simulation_time)
 
 
 	fclose(pFile_outp);
-	return 0;
+	return 1;
 
 }
 
 
-int isnumeric(char a)
+static int isnumeric(char a)
 {
 	if(a>=(char)48 && a<=(char)57) return 1;
 	else return 0;
 }
 
-int readfloats(int n_floats, float* temp, FILE* pFile)
+static int readfloats(int n_floats, float* temp, FILE* pFile)
 {
 	int ii=0;
 	char mystring [200];
@@ -273,7 +275,7 @@ int readfloats(int n_floats, float* temp, FILE* pFile)
 	return 1; // Everyting appears to be ok!
 }
 
-int readints(int n_ints, int* temp, FILE* pFile) //replace with template?
+static int readints(int n_ints, int* temp, FILE* pFile) //replace with template?
 {
 	int ii=0;
 	char mystring[STR_LEN];
@@ -292,13 +294,55 @@ int readints(int n_ints, int* temp, FILE* pFile) //replace with template?
 	return 1; // Everyting appears to be ok!
 }
 
-int ischar(char a)
+static int ischar(char a)
 {
-	if((a>=(char)65 && a<=(char)90)||(a>=(char)97 && a<=(char)122)) return 1;
+	if((a>=(char)65 && a<=(char)90)/*uppercase*/||(a>=(char)97 && a<=(char)122)/*lowercase*/
+		||(a>=(char)48 && a<=(char)57)/*numbers*/||(a==46)/*period*/) return 1;
 	else return 0;
 }
 
-int read_simulation_data(char* filename, SimulationStruct** simulations, int ignoreAdetection)
+static int read_boundary_data(FILE* pFile, BoundaryStruct* boundaryPtr) {
+
+	const char* hfieldError = "Error reading boundary data: indicator not char, number of samples not u32, or wrong number of sample values supplied";
+
+	int success = 1;
+
+	char boundaryIndicator;
+	success = fscanf(pFile, "%c", &boundaryIndicator);
+	// printf("boundaryIndicator=%c\n", boundaryIndicator);
+	if (!success) { perror(hfieldError); return 0; }
+	
+	if (boundaryIndicator == 'b') { // this tells us that explicit boundary data follows now
+
+		boundaryPtr->isHeightfield = 1;
+
+		success = fscanf(pFile, "%u", &(boundaryPtr->n));
+		if (!success) { perror(hfieldError); return 0; }
+
+		const uint32_t BOUNDARY_SAMPLES = boundaryPtr->n;
+
+		boundaryPtr->heights = (float*)malloc(boundaryPtr->n * sizeof(float));
+		boundaryPtr->spacings = (float*)malloc(boundaryPtr->n * sizeof(float));
+
+		for (int sampleIdx = 0; sampleIdx < 2*BOUNDARY_SAMPLES; sampleIdx++) {
+			if (sampleIdx % 2 == 0) // height values at even indices
+				success = fscanf(pFile, "%f", boundaryPtr->heights + sampleIdx/2);
+			else // spacing values at odd indices
+				success = fscanf(pFile, "%f", boundaryPtr->spacings + (sampleIdx-1)/2);
+			if (!success) { perror(hfieldError); return 0; }
+		}
+	} else {
+
+		boundaryPtr->isHeightfield = 0;
+
+		// seek one char backwards so that it can proceed reading layers
+		fseek(pFile, -1L, SEEK_CUR);
+	}
+
+	return success;
+}
+
+static int read_simulation_data(char* filename, SimulationStruct** simulations, int ignoreAdetection)
 {
 	int i=0;
 	int ii=0;
@@ -388,26 +432,33 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 
 		// Read No. of layers (1xint)
 		if(!readints(1, itemp, pFile)){perror ("Error reading No. of layers");return 0;}
-		printf("No. of layers=%d\n",itemp[0]);
+		// printf("No. of layers=%d\n",itemp[0]);
 		n_layers = itemp[0];
 		(*simulations)[i].n_layers = itemp[0];
 
 		// Allocate memory for the layers (including one for the upper and one for the lower)
 		(*simulations)[i].layers = (LayerStruct*) malloc(sizeof(LayerStruct)*(n_layers+2));
-		if((*simulations)[i].layers == NULL){perror("Failed to malloc layers.\n");return 0;}//{printf("Failed to malloc simulations.\n");return 0;}
+		if((*simulations)[i].layers == NULL){perror("Failed to malloc layers.\n");return 0;}
 
+		// Allocate memory for the boundaries
+		(*simulations)[i].boundaries = (BoundaryStruct*)malloc(sizeof(BoundaryStruct)*(n_layers+1));
+		if((*simulations)[i].boundaries == NULL){perror("Failed to malloc boundaries.\n");return 0;}
 
 		// Read upper refractive index (1xfloat)
 		if(!readfloats(1, ftemp, pFile)){perror ("Error reading upper refractive index");return 0;}
-		printf("Upper refractive index=%f\n",ftemp[0]);
+		// printf("Upper refractive index=%f\n",ftemp[0]);
 		(*simulations)[i].layers[0].n=ftemp[0];
 
 		dtot=0;
 		for(ii=1;ii<=n_layers;ii++)
 		{
+			// Read boundary data (array of height spacing pairs)
+			// If no explicit boundary data present, this leaves the file pointer ready to proceed with layers
+			if (!read_boundary_data(pFile, &((*simulations)[i].boundaries[ii-1]))) {perror("Failed to read_boundary_data.\n");return 0;}
+
 			// Read Layer data (5x float)
 			if(!readfloats(5, ftemp, pFile)){perror ("Error reading layer data");return 0;}
-			printf("n=%f, mua=%f, mus=%f, g=%f, d=%f\n",ftemp[0],ftemp[1],ftemp[2],ftemp[3],ftemp[4]);
+			// printf("n=%f, mua=%f, mus=%f, g=%f, d=%f\n",ftemp[0],ftemp[1],ftemp[2],ftemp[3],ftemp[4]);
 			(*simulations)[i].layers[ii].n=ftemp[0];
 			(*simulations)[i].layers[ii].mua=ftemp[1];
 			(*simulations)[i].layers[ii].g=ftemp[3];
@@ -420,9 +471,12 @@ int read_simulation_data(char* filename, SimulationStruct** simulations, int ign
 			//printf("z_min=%f, z_max=%f\n",(*simulations)[i].layers[ii].z_min,(*simulations)[i].layers[ii].z_max);
 		}//end ii<n_layers
 
+		// One more boundary
+		if (!read_boundary_data(pFile, &((*simulations)[i].boundaries[ii-1]))) {perror("Failed to read_boundary_data.\n");return 0;}
+
 		// Read lower refractive index (1xfloat)
 		if(!readfloats(1, ftemp, pFile)){perror ("Error reading lower refractive index");return 0;}
-		printf("Lower refractive index=%f\n",ftemp[0]);
+		// printf("Lower refractive index=%f\n",ftemp[0]);
 		(*simulations)[i].layers[n_layers+1].n=ftemp[0];
 
 		(*simulations)[i].end=ftell(pFile);

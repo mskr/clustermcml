@@ -1,5 +1,5 @@
 // Remove all CL calls when compiling for CPU
-#ifdef CL2CPU
+#ifdef NO_GPU
 	#define cl_int int
 	#define cl_context int
 	#define cl_device_id int

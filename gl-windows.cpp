@@ -1,4 +1,12 @@
-#include <assert.h>
+/*********************************************************************************
+*
+* This code runs a OpenGL shader in a MS Windows window.
+* The fragment shader can be edited "live" via the console.
+*
+* Interfaces are provided to add uniform buffers and start the render loop.
+*
+*********************************************************************************/
+
 #include <windows.h>
 #include "glad.h"
 #include "glad_wgl.h"

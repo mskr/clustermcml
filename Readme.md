@@ -2,7 +2,10 @@
 
 Implementation of MCML in MPI and OpenCL.
 
-
+(Planned) extensions to original MCML are:
+- Non-flat boundary shapes
+- Dwivedi sampling
+- Reflection BRDFs
 
 ## Build
 
@@ -12,6 +15,8 @@ Currently only Windows.
 3. Run nmake.
 
 Alternative make targets:
+- clustermcml-windows.exe: default
+- singlemcml-windows.exe: no-gpu and single-cpu version for easier debugging (behaves the same as original mcml)
 - clustermcml-windows-debug.exe: output windows debug symbols
 - clustermcml-gl-windows.exe: launch a GL shader for output buffer visualization after the kernel has run
 - clustermcpi-windows.exe: very simple example program that approximates PI using a Monte Carlo method
@@ -77,7 +82,9 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 
 ## Code TODOs
 
-- Use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs
+- **Allow both types of boundaries (flat and heightfield), choosable on per-boundary basis.**
+
+- **Use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs**
 
 - Consider using -cl-mad-enable, native_log() and other kernel optimizations
 
@@ -89,6 +96,40 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 - Try quasirandom Monte Carlo (blue noise instead of true random)
     - http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 
+- OpenCL 2.0: [work_group_reduce](https://www.khronos.org/registry/OpenCL/sdk/2.0/docs/man/xhtml/work_group_reduce.html)
+instead of atomics may help to speed up binning
+
+## Project Modules
+
+### clusterlib
+
+Provides convenience functions for managing a cluster setup using MPI and OpenCL.
+
+### randomlib
+
+Provides GPU-friendly random number generators and hashes.
+
+### clmem
+
+Provides macros for struct alignment, memory allocation and data layout.
+
+Useful for [data](https://www.youtube.com/watch?v=rX0ItVEVjHc)-[orie](https://twitter.com/aras_p/status/1044656885100675072)[nted](https://twitter.com/BrookeHodgman/status/1049278775215570944) [des](https://www.youtube.com/watch?v=yy8jQgmhbAU)[ign](http://www.asawicki.info/news_1422_data-oriented_design_-_links_and_thoughts.html).
+
+### cl2cpp
+
+OpenCL C to C++ transpiler for enabling better debuggable "No GPU" builds of the program.
+
+### gl-windows
+
+Provides convenience methods for running an OpenGL shader with some uniform buffers on Windows.
+The shader runs on a viewport-filling quad and can be edited "live" in the console.
+
+Useful for visualizing simulation outputs.
+
+### geometrylib
+
+Provides geometry-related functions like intersection routines, rotations, projections etc. as pure functions.
+Intended for all the stuff higher level than OpenCL C built-ins like length, distance etc.
 
 ## Project TODOs
 
