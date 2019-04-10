@@ -28,7 +28,7 @@
 
 #include "geometrylib.c"
 
-#define BoundaryArray __global struct RHeightfield*
+#define BoundaryArray __global struct Boundary*
 #define LayerArray __global struct Layer*
 #define Weight ulong
 #define WeightArray volatile __global Weight*
@@ -124,14 +124,34 @@ bool roulette(uint* rng_state, float* photonWeight) {
 * there is an intersection with the boundary in the photon step.
 * Also outputs collision normal and path length to intersection.
 */
-int detectBoundaryCollision(int currentLayer, struct Line3 line, BoundaryArray boundaries, float3* normal, float* pathLenToIntersection) {
+int detectBoundaryCollision(int currentLayer, struct Line3 line,
+	BoundaryArray boundaries, __global float* heights, __global float* spacings,
+	float3* normal, float* pathLenToIntersection) {
+
 	// Find intersection with top boundary
-	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer], normal);
+	if (boundaries[currentLayer].isHeightfield) {
+		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer].heightfield, heights, spacings, normal);
+	} else {
+		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer].z);
+		const float3 normal = (float3)(0.0f, 0.0f, 1.0f);
+		struct Plane3 plane = {middle, normal};
+		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
+	}
+
 	if (*pathLenToIntersection >= 0) {
 		return -1;
 	}
+
 	// Find intersection with bottom boundary
-	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1], normal);
+	if (boundaries[currentLayer+1].isHeightfield) {
+		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1].heightfield, heights, spacings, normal);
+	} else {
+		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer+1].z);
+		const float3 normal = (float3)(0.0f, 0.0f, -1.0f);
+		struct Plane3 plane = {middle, normal};
+		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
+	}
+
 	if (*pathLenToIntersection >= 0) {
 		return 1;
 	}
@@ -292,9 +312,21 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 
 
 
-// control time spent on the GPU in each round
-// note that if this is too big the process might be killed
+// MAX_ITERATIONS of main loop, i.e. photon bounces, to control time
+// spent on the GPU per round.
+// After each round, the CPU checks all photons for their weight and
+// restarts a photon if it finished and total target number not reached.
+// If MAX_ITERATIONS is...
+// ... small, more GPU rounds and more weight-checks are needed, but
+// also finished photons can be restarted earlier, which reduces
+// inactive threads.
+// ... large, process might be killed by Windows, or the first call to
+// clEnqueueReadBuffer might fail with CL_OUT_OF_RESOURCES.
 #define MAX_ITERATIONS 1000
+
+
+
+
 
 /**
 * Monte carlo photon transport in multilayered media.
@@ -334,6 +366,8 @@ float nBelow, // refractive index below
 LayerArray layers, // layer array
 int layerCount, // size of layer array
 BoundaryArray boundaries, // boundary array
+__global float* heights, // height samples of all boundaries
+__global float* spacings, // sample spacings of all boundaries
 int size_r, // number of radial bins
 int size_a, // number of angular bins
 int size_z, // number of depth bins
@@ -368,7 +402,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		float rand = getRandom(&rng_state);
 		float s = -log(rand) / interactCoeff;
 
-		// Uncomment to output some lengths of the first step of a photon (DEBUG mode required)
+		// Uncomment to output some lengths of the first step of a photon (DEBUG define required)
 		// if (get_global_id(0) < 2048/4) // limited by debug buffer size
 		// 	((__global float*)DEBUG_BUFFER)[get_global_id(0)] = s;
 		// break;
@@ -376,7 +410,7 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		// Test intersection with top and bottom boundaries of current layer
 		float3 normal = (float3)(0); float pathLenToIntersection = 0;
 		struct Line3 line = { pos, pos + s*dir };
-		int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, &normal, &pathLenToIntersection);
+		int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &normal, &pathLenToIntersection);
 		if (layerChange != 0 && disabledBoundary != max(currentLayer, currentLayer+layerChange)) {
 
 			// In theory, the photon should now be moved exactly onto the boundary. Another collision with the same boundary should thus not be possible in the next step.
@@ -441,14 +475,32 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		}
 	}
 
-	// Count finished photons as debug info
+	// Uncomment to count finished photons (DEBUG define required)
 	// Something like this can be used to restart photons on the fly,
 	// without exceeding target count, to avoid inactive threads.
-	#ifdef DEBUG
-	if (photonWeight == 0) {
-		atomic_add((volatile __global uint*)DEBUG_BUFFER, 1); 
-	}
-	#endif
+	// if (photonWeight == 0) {
+	// 	atomic_add((volatile __global uint*)DEBUG_BUFFER, 1); 
+	// }
+
+	// Uncomment to output spacings of heightfield boundaries
+	// if (get_global_id(0) < 60)
+	// 	((__global float*)DEBUG_BUFFER)[get_global_id(0)] = spacings[get_global_id(0)];
+
+	// Uncomment to output parameters of first two boundaries
+	// if (get_global_id(0) < 2) 
+	// 	((__global uint*)DEBUG_BUFFER)[get_global_id(0)] = boundaries[get_global_id(0)].isHeightfield;
+	// if (get_global_id(0) > 1 && get_global_id(0) < 4)
+	// 	((__global float*)DEBUG_BUFFER)[get_global_id(0)] = boundaries[get_global_id(0)-2].heightfield.center.z;
+	// if (get_global_id(0) > 3 && get_global_id(0) < 6)
+	// 	((__global uint*)DEBUG_BUFFER)[get_global_id(0)] = boundaries[get_global_id(0)-4].heightfield.i_heights;
+	// if (get_global_id(0) > 5 && get_global_id(0) < 8)
+	// 	((__global uint*)DEBUG_BUFFER)[get_global_id(0)] = boundaries[get_global_id(0)-6].heightfield.n_heights;
+	// if (get_global_id(0) > 7 && get_global_id(0) < 10)
+	// 	((__global uint*)DEBUG_BUFFER)[get_global_id(0)] = boundaries[get_global_id(0)-8].heightfield.i_spacings;
+	// if (get_global_id(0) > 9 && get_global_id(0) < 12)
+	// 	((__global uint*)DEBUG_BUFFER)[get_global_id(0)] = boundaries[get_global_id(0)-10].heightfield.n_spacings;
+	// if (get_global_id(0) > 11 && get_global_id(0) < 13)
+	// 	((__global uint*)DEBUG_BUFFER)[get_global_id(0)] = sizeof(boundaries[get_global_id(0)]);
 
 	// Save state for the next round
 	state->x = pos.x; state->y = pos.y; state->z = pos.z;

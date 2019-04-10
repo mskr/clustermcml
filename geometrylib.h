@@ -1,3 +1,6 @@
+#ifndef GEOMETRYLIB_H
+#define GEOMETRYLIB_H
+
 #define Real float
 #define Real3 float3
 
@@ -45,24 +48,37 @@ struct Plane3 {
 
 /**
 * Radial heightfield
+* Holds center, but not actual sample values,
+* because they are dynamic. Instead it points
+* to ranges in arrays of heights and spacings.
 */
 struct RHeightfield {
     Real3 center;
-    Real heights[BOUNDARY_SAMPLES];
-    Real spacings[BOUNDARY_SAMPLES];
+
+    uint i_heights;
+    uint n_heights;
+
+    uint i_spacings;
+    uint n_spacings;
 };
 
 
-/*
+/**
 * Distance of p to plane with origin o and normalized normal n
 */
 Real calcPointPlaneDistance(Real3 p, Real3 o, Real3 n) ;
 
 
-/*
+/**
 * An intersection routine for rays and planes
 */
 Real intersectPlane(Real3 pos, Real3 dir, Real3 middle, Real3 normal);
+
+
+/**
+* Plane-line intersection implemented on top of ray-plane intersection
+*/
+Real intersectPlaneWithLine(struct Plane3 plane, struct Line3 line);
 
 
 /**
@@ -97,7 +113,9 @@ Real3 rotate90PointAroundVector(Real3 vector, Real3 point);
 /**
 * Find intersection of line with radial heightfield (accurate)
 */
-Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* outNormal);
+Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, __global Real* heights, __global Real* spacings, Real3* outNormal);
 
 #undef Real
 #undef Real3
+
+#endif

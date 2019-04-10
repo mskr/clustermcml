@@ -18,13 +18,25 @@ Real calcPointPlaneDistance(Real3 p, Real3 o, Real3 n) {
 
 /*
 * An intersection routine for rays and planes
+* Returns path length to intersection or negative number in case of no intersection
 */
 Real intersectPlane(Real3 pos, Real3 dir, Real3 middle, Real3 normal) {
-    Real a = dot(dir, normal);
+    const Real a = dot(dir, normal);
     if (a >= 0.0) return -1.0; // facing away
-    Real b = dot(middle - pos, normal);
+    const Real b = dot(middle - pos, normal);
     if (b >= 0.0) return -1.0; // behind or on plane
     return b / a;
+}
+
+/**
+* Tests intersection of plane with line having start and end
+*/
+Real intersectPlaneWithLine(struct Plane3 plane, struct Line3 line) {
+    const Real3 lineVec = line.end - line.start;
+    const Real3 rayDir = normalize(lineVec);
+    const Real pathLenToIntersection = intersectPlane(line.start, rayDir, plane.middle, plane.normal);
+    if (length(lineVec) < pathLenToIntersection) return -1.0;
+    return pathLenToIntersection;
 }
 
 
@@ -367,11 +379,18 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, struct Cone3 cone, Rea
 * For indices >= number of samples, annulus with infinite outer edge is returned.
 * Buffer overflow is prevented by taking the last sample twice.
 */
-struct Cone3 getConeAtIndex(int i, struct RHeightfield hfield) {
+struct Cone3 getConeAtIndex(uint i, struct RHeightfield hfield, __global Real* heights, __global Real* spacings) {
 
     // Get 2 nearest samples
-    const Real h0 = hfield.heights[min(i, BOUNDARY_SAMPLES-1)];
-    const Real h1 = hfield.heights[min(i+1, BOUNDARY_SAMPLES-1)];
+
+    // Calc global indices
+    const uint gi_heights = hfield.i_heights + i;
+    const uint gi_max_heights = hfield.i_heights + hfield.n_heights - 1;
+    const uint gi_spacings = hfield.i_spacings + i;
+    const uint gi_max_spacings = hfield.i_spacings + hfield.n_spacings - 1;
+
+    const Real h0 = heights[min(gi_heights, gi_max_heights)];
+    const Real h1 = heights[min(gi_heights+1, gi_max_heights)];
 
     // Apply height
     const Real z0 = hfield.center.z - h0;
@@ -379,9 +398,9 @@ struct Cone3 getConeAtIndex(int i, struct RHeightfield hfield) {
 
     // Calc radial offsets
     Real r0 = 0;
-    for (int j = 0; j < min(i, BOUNDARY_SAMPLES-1); j++)
-        r0 += hfield.spacings[j];
-    Real r1 = i < BOUNDARY_SAMPLES ? r0 + hfield.spacings[i] : INFINITY;
+    for (int j = gi_spacings; j < min(gi_spacings+i, gi_max_spacings); j++)
+        r0 += spacings[j];
+    Real r1 = gi_spacings+i <= gi_max_spacings ? r0 + spacings[gi_spacings+i] : INFINITY;
 
     // Degenerate case: cone becomes annulus in xy plane
     if (h0 == h1) {
@@ -421,7 +440,7 @@ struct Cone3 getConeAtIndex(int i, struct RHeightfield hfield) {
 * Maximum index that can be returned equals number of samples,
 * i.e. is out of bounds. Should be used to handle border case.
 */
-int getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield) {
+uint getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield, __global Real* spacings) {
 
     // Calc p in heightmap coordinate system
     Real2 p = xy - hfield.center.xy;
@@ -431,12 +450,12 @@ int getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield) {
 
     // Count spacings that fit in r
     // (clamp to number of samples)
-    int i = 0;
-    Real s = hfield.spacings[0];
+    uint i = 0;
+    Real s = spacings[hfield.i_spacings];
     while (s < r) {
         i++;
-        if (i < BOUNDARY_SAMPLES)
-            s += hfield.spacings[i];
+        if (i < hfield.n_spacings)
+            s += spacings[hfield.i_spacings + i];
         else break;
     }
     return i;
@@ -445,23 +464,24 @@ int getConeIndexFromPosition(Real2 xy, struct RHeightfield hfield) {
 
 /**
 * Find intersection of line with radial heightfield (accurate)
+*
+* Algorithm outline:
+* iterate over all cones in the path of the line and take the closest hit
+*  - to make sure not to miss any cones, get cone under the closest point on the line to heightfield center
+*  - by assigning an ascending index from inner to outer cones, all in-between cones can easily be iterated
 */
-Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, Real3* outNormal) {
-    // Algorithm outline:
-    // iterate over all cones in the path of the line and take the closest hit
-    //  - to make sure not to miss any cones, get cone under the closest point on the line to heightfield center
-    //  - by assigning an ascending index from inner to outer cones, all in-between cones can easily be iterated
+Real intersectHeightfield(struct Line3 line, struct RHeightfield hfield, __global Real* heights, __global Real* spacings, Real3* outNormal) {
 
-    const int startIndex = getConeIndexFromPosition(line.start.xy, hfield);
-    const int endIndex = getConeIndexFromPosition(line.end.xy, hfield);
-    const int farestIndex = max(startIndex, endIndex);
+    const uint startIndex = getConeIndexFromPosition(line.start.xy, hfield, spacings);
+    const uint endIndex = getConeIndexFromPosition(line.end.xy, hfield, spacings);
+    const uint farestIndex = max(startIndex, endIndex);
     const Real3 closestPoint = projectPointToLine(line, hfield.center);
-    const int closestIndex = getConeIndexFromPosition(closestPoint.xy, hfield); 
+    const uint closestIndex = getConeIndexFromPosition(closestPoint.xy, hfield, spacings); 
 
     Real pathLenToIntersection = -1.0f;
     
-    for (int i = closestIndex; i <= farestIndex; i++) {
-        const struct Cone3 cone = getConeAtIndex(i, hfield);
+    for (uint i = closestIndex; i <= farestIndex; i++) {
+        const struct Cone3 cone = getConeAtIndex(i, hfield, heights, spacings);
         const Real3 lineVec = line.end - line.start;
         const Real3 rayDir = normalize(lineVec);
         Real3 normal = (Real3)(0);

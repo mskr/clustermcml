@@ -64,7 +64,7 @@ main.preprocessed.cpp: main.cpp clusterlib.h clmem.h
 runMCML-windows.o: runMCML.preprocessed.cpp
 	$(MSVC)/cl runMCML.preprocessed.cpp /c /W3 /Fo"runMCML-windows.o"
 
-runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.h CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h
+runMCML.preprocessed.cpp: runMCML.cpp CUDAMCMLio.h CUDAMCMLio.c randomlib.h Boundary.h Layer.h PhotonTracker.h clmem.h clcheck.h mpicheck.h geometrylib.h
 	$(MSVC)/cl runMCML.cpp /c \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \

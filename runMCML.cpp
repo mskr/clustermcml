@@ -14,24 +14,19 @@
 #include <stdlib.h> // malloc, free
 #include <assert.h> // assert
 
-// Mem management
+#include <time.h> // clock, CLOCKS_PER_SEC
+#include <chrono> // std::chrono::high_resolution_clock::time_point, std::chrono::duration
+
+// Memory management
 #include "clmem.h" // CLMALLOC_INPUT, CLMALLOC_OUTPUT, CLMEM, CLMEM_ACCESS_ARRAY, CLMEM_ACCESS_AOS
 
 // Core structs
-#include "Layer.h" // struct Layer
 #include "PhotonTracker.h" // struct PhotonTracker
-#include "Boundary.h" // BOUNDARY_SAMPLES
-
-// Geometry structs
+#include "Layer.h" // struct Layer
 #ifdef NO_GPU
 typedef struct { float x,y,z; } float3;
-#else
-typedef cl_float3 float3; // note: sizeof(cl_float3) != sizeof(float[3])
 #endif
-#include "geometrylib.h" // struct RHeightfield
-
-// All boundaries are heightfields now!
-#define Boundary RHeightfield //TODO make this configurable
+#include "Boundary.h" // struct Boundary
 
 // RNG functions
 #include "randomlib.h" // wang_hash, rand_xorshift
@@ -40,12 +35,12 @@ typedef cl_float3 float3; // note: sizeof(cl_float3) != sizeof(float[3])
 #include "Log.h" // out
 
 // Error catching macros
-#define DEBUG
+#define DEBUG // debug mode, i.e. enabled checks, always better for now
 #include "clcheck.h" // CL macro
 #include "mpicheck.h" // MPI macro
 
 // MCML file io
-//TODO Link instead of include + remove printfs
+//TODO Link instead of include
 #include "CUDAMCMLio.h" // SimulationStruct
 #include "CUDAMCMLio.c" // read_simulation_data, Write_Simulation_Results
 
@@ -67,7 +62,7 @@ enum { GO, CONTINUE, FINISH };
 */
 enum ParallelizationStrategy { UPFRONT_WORK_SPLIT, COORDINATOR_WORKER };
 
-
+// Holds current parallelization strategy
 const ParallelizationStrategy CURRENT_PAR = ParallelizationStrategy::COORDINATOR_WORKER;
 
 
@@ -78,12 +73,17 @@ static SimulationStruct* simulations = 0;
 // Per-simulation buffers
 static cl_mem* layersPerSimulation = 0;
 static cl_mem* boundariesPerSimulation = 0;
+static cl_mem* heightsPerSimulation = 0;
+static cl_mem* spacingsPerSimulation = 0;
 static cl_mem* reflectancePerSimulation = 0;
 static cl_mem* transmissionPerSimulation = 0;
 static cl_mem* absorptionPerSimulation = 0;
 
 // Holds photon state for every GPU thread
 static cl_mem stateBuffer = 0;
+
+// Ignore explicit heightfield boundaries, even if present in input file?
+bool ignoreHeightfields = false; // set via kernel define
 
 // Holds photon ages in GPU runs without restart (for debug)
 static uint32_t* ages;
@@ -115,26 +115,17 @@ static PhotonTracker createNewPhotonTracker() {
 * Check if explicitly defined heightfield boundaries overlap.
 * If so, the boundaries are invalid and the program is terminated.
 */
-static void checkBoundaries(Boundary* boundaries, int n) {
+static void checkBoundaries(BoundaryStruct* boundaries, int n) {
 	//TODO
 }
 
 
 /**
 * Read data from mci file into array of simulation structs.
-* This function just wraps a call to CUDAMCML.
 */
-static void readMCIFile(char* name, bool ignoreA, bool explicitBoundaries, int* outSimCount) {
-	out << "Following info was read from input file \"" << name << "\":\n";
+static void readMCIFile(char* name, bool ignoreA, int* outSimCount) {
 
-	// Do this once photon refraction works for all normals:
-	//TODO need indicator in file format to detect and skip boundary lines if no explicit boundaries wanted
-	//TODO throw error if explicit boundaries wanted but not found in file
-	//TODO add support for mixed boundaries, i.e. boundary object can contain either single depth value or heightfield data
-
-	*outSimCount = read_simulation_data(name, &simulations, ignoreA ? 1 : 0, explicitBoundaries ? 1 : 0);
-
-	//TODO check boundaries for disallowed overlaps
+	*outSimCount = read_simulation_data(name, &simulations, ignoreA ? 1 : 0);
 
 	assert(*outSimCount > 0);
 }
@@ -206,17 +197,16 @@ static MPI_Datatype createMPILayerStruct() {
 * Create boundary struct description to enable transfer via MPI
 */
 static MPI_Datatype createMPIBoundaryStruct() {
-	// struct RHeightfield
-	// Real3 center;
-	// Real heights[BOUNDARY_SAMPLES];
-	// Real spacings[BOUNDARY_SAMPLES];
-
-	// Note: Real3 is cl_float3 which is 4 floats wide (because of GPU mem alignment)
-	int blockLengths[1] = {(sizeof(float3)/sizeof(float)) + 2*BOUNDARY_SAMPLES};
-	int offsets[1] = {0};
-	MPI_Datatype types[1] = {MPI_FLOAT};
+	// Describing the following data layout:
+	// uint32_t isHeightfield;
+	// uint32_t n;
+	// float* heights;
+	// float* spacings;
+	int blockLengths[2] = {2, 2*sizeof(void*)};
+	int offsets[2] = {0, 2*sizeof(uint32_t)};
+	MPI_Datatype types[2] = {MPI_UINT32_T, MPI_CHAR};
 	MPI_Datatype boundaryStruct;
-	MPI(Type_create_struct, 1, blockLengths, offsets, types, &boundaryStruct);
+	MPI(Type_create_struct, 2, blockLengths, offsets, types, &boundaryStruct);
 	MPI(Type_commit, &boundaryStruct);
 	return boundaryStruct;
 }
@@ -256,13 +246,30 @@ static void broadcastInputData(int rank) {
 	MPI_Datatype mpiBoundaryStruct = createMPIBoundaryStruct();
 	int mpiBoundarySize = 0;
 	MPI(Type_size, mpiBoundaryStruct, &mpiBoundarySize);
-	assert(mpiBoundarySize == sizeof(Boundary));
+	assert(mpiBoundarySize == sizeof(BoundaryStruct));
 	for (int i = 0; i < simCount; i++) {
 		if (rank != 0)
-			simulations[i].boundaries = (Boundary*)malloc((simulations[i].n_layers + 1) * sizeof(Boundary));
+			simulations[i].boundaries = (BoundaryStruct*)malloc((simulations[i].n_layers + 1) * sizeof(BoundaryStruct));
 		MPI(Bcast, simulations[i].boundaries, simulations[i].n_layers + 1, mpiBoundaryStruct, 0, MPI_COMM_WORLD);
 	}
+
+	// Broadcast heightfield data for boundaries that are heightfields
+	for (int i = 0; i < simCount; i++) {
+		uint32_t n_boundaries = simulations[i].n_layers + 1;
+		for (int j = 0; j < n_boundaries; j++) {
+			if (simulations[i].boundaries[j].isHeightfield) {
+				uint32_t n_samples = simulations[i].boundaries[j].n;
+				if (rank != 0) {
+					simulations[i].boundaries[j].heights = (float*)malloc(n_samples * sizeof(float));
+					simulations[i].boundaries[j].spacings = (float*)malloc(n_samples * sizeof(float));
+				}
+				MPI(Bcast, simulations[i].boundaries[j].heights, n_samples, MPI_FLOAT, 0, MPI_COMM_WORLD);
+				MPI(Bcast, simulations[i].boundaries[j].spacings, n_samples, MPI_FLOAT, 0, MPI_COMM_WORLD);
+			}
+		}
+	}
 }
+
 
 
 /**
@@ -276,20 +283,45 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 	int layerCount = sim.n_layers;
 	layersPerSimulation[simIndex] = CLMALLOC_INPUT(layerCount, Layer);
 	boundariesPerSimulation[simIndex] = CLMALLOC_INPUT(layerCount+1, Boundary);
+	
+	unsigned int totalSampleCount = 0;
+	for (int i = 0; i < layerCount+1; i++)
+		if (sim.boundaries[i].isHeightfield && !ignoreHeightfields)
+			totalSampleCount += sim.boundaries[i].n;
 
-	// Data structures as read from file are slightly restructured to be ready for GPU consumption
+	heightsPerSimulation[simIndex] = CLMALLOC_INPUT(totalSampleCount, float);
+	spacingsPerSimulation[simIndex] = CLMALLOC_INPUT(totalSampleCount, float);
+
+	unsigned int sampleCount = 0;
+
+	// Transform data into format that we want to use on GPU
 	for (int j = 1; j <= layerCount; j++) {
 
 		// Boundary
-		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.x) = 0.0f;
-		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.y) = 0.0f;
-		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, center.z) = sim.layers[j].z_min;
-		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heights),
-			sim.boundaries[j-1].heights,
-            BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].heights[0]));
-		memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, spacings),
-			sim.boundaries[j-1].spacings,
-            BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].spacings[0]));
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, isHeightfield) = 
+			sim.boundaries[j-1].isHeightfield && !ignoreHeightfields;
+		if (CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, isHeightfield)) {
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.center.x) = 0.0f;
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.center.y) = 0.0f;
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.center.z) = sim.layers[j].z_min;
+
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.i_heights) = sampleCount;
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.n_heights) = sim.boundaries[j-1].n;
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.i_spacings) = sampleCount;
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, heightfield.n_spacings) = sim.boundaries[j-1].n;
+			memcpy(
+				&CLMEM_ACCESS_ARRAY(CLMEM(heightsPerSimulation[simIndex]), float, sampleCount),
+				sim.boundaries[j-1].heights,
+				sim.boundaries[j-1].n * sizeof(float));
+			memcpy(
+				&CLMEM_ACCESS_ARRAY(CLMEM(spacingsPerSimulation[simIndex]), float, sampleCount),
+				sim.boundaries[j-1].spacings,
+				sim.boundaries[j-1].n * sizeof(float));
+
+			sampleCount += sim.boundaries[j-1].n;
+		} else {
+			CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, j-1, z) = sim.layers[j].z_min;
+		}
 
 		// Layer
 		CLMEM_ACCESS_AOS(CLMEM(layersPerSimulation[simIndex]), Layer, j-1, absorbCoeff) = sim.layers[j].mua;
@@ -300,16 +332,30 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 	}
 
 	// One more boundary
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.x) = 0.0f;
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.y) = 0.0f;
-	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, center.z) = sim.layers[layerCount].z_max;
-	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heights), 
-		sim.boundaries[layerCount].heights,
-        BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].heights[0]));
-	memcpy(CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, spacings),
-		sim.boundaries[layerCount].spacings,
-        BOUNDARY_SAMPLES * sizeof(sim.boundaries[0].spacings[0]));
-	// Note: To avoid bugs in this kind of copy operation, there should be size-checked functions in clmem.h
+	CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, isHeightfield) = 
+		sim.boundaries[layerCount].isHeightfield && !ignoreHeightfields;
+	if (CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, isHeightfield)) {
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.center.x) = 0.0f;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.center.y) = 0.0f;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.center.z) = sim.layers[layerCount].z_max;
+
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.i_heights) = sampleCount;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.n_heights) = sim.boundaries[layerCount].n;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.i_spacings) = sampleCount;
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, heightfield.n_spacings) = sim.boundaries[layerCount].n;
+
+		memcpy(
+			&CLMEM_ACCESS_ARRAY(CLMEM(heightsPerSimulation[simIndex]), float, sampleCount),
+			sim.boundaries[layerCount].heights,
+			sim.boundaries[layerCount].n * sizeof(float));
+		memcpy(
+			&CLMEM_ACCESS_ARRAY(CLMEM(spacingsPerSimulation[simIndex]), float, sampleCount),
+			sim.boundaries[layerCount].spacings,
+			sim.boundaries[layerCount].n * sizeof(float));
+		// Note: To avoid bugs in this kind of copy operation, there should be size-checked functions in clmem.h
+	} else {
+		CLMEM_ACCESS_AOS(CLMEM(boundariesPerSimulation[simIndex]), Boundary, layerCount, z) = sim.layers[layerCount].z_max;
+	}
 }
 
 
@@ -334,11 +380,22 @@ static void allocOutputArrays(SimulationStruct sim, int simIndex) {
 /**
 * Transfer layer and boundary data to GPU
 */
-static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, cl_mem layers, cl_mem boundaries) {
+static void uploadInputArrays(cl_command_queue cmd, SimulationStruct sim, 
+	cl_mem layers, cl_mem boundaries, cl_mem heights, cl_mem spacings) {
+
 	// Do a blocking write to be safe (but maybe slow)
 	//TODO can we use async buffer transfers?
+
 	CL(EnqueueWriteBuffer, cmd, layers, CL_TRUE, 0, sim.n_layers*sizeof(Layer), CLMEM(layers), 0, NULL, NULL);
 	CL(EnqueueWriteBuffer, cmd, boundaries, CL_TRUE, 0, (sim.n_layers+1)*sizeof(Boundary), CLMEM(boundaries), 0, NULL, NULL);
+
+	unsigned int totalSampleCount = 0;
+	for (int i = 0; i < sim.n_layers+1; i++)
+		if (sim.boundaries[i].isHeightfield && !ignoreHeightfields)
+			totalSampleCount += sim.boundaries[i].n;
+
+	CL(EnqueueWriteBuffer, cmd, heights, CL_TRUE, 0, totalSampleCount*sizeof(float), CLMEM(heights), 0, NULL, NULL);
+	CL(EnqueueWriteBuffer, cmd, spacings, CL_TRUE, 0, totalSampleCount*sizeof(float), CLMEM(spacings), 0, NULL, NULL);
 }
 
 
@@ -372,7 +429,7 @@ static void initAndUploadOutputArrays(cl_command_queue cmd, SimulationStruct sim
 static float computeFresnelReflectance(float n0, float n1) {
 	// Reflectance (specular):
 	// percentage of light leaving at surface without any interaction
-	// using Fesnel approximation by Schlick (no incident angle, no polarization)
+	// using MCML's Fesnel approximation similar to Schlick's approximation (no incident angle, no polarization)
 	// Q: why are the ^2 different than in Schlicks approximation?
 	float nDiff = n0 - n1;
 	float nSum = n0 + n1;
@@ -550,7 +607,9 @@ static uint32_t countActivePhotons(cl_command_queue cmd, size_t totalThreadCount
 /**
 * Set arguments for CL kernel function
 */
-static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem layers, cl_mem boundaries, cl_mem R, cl_mem A, cl_mem T) {
+static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, 
+	cl_mem layers, cl_mem boundaries, cl_mem heights, cl_mem spacings, cl_mem R, cl_mem A, cl_mem T) {
+
 	float nAbove = sim.layers[0].n; // first and last layer have only n initialized...
 	float nBelow = sim.layers[sim.n_layers + 1].n; // ...and represent outer media
 	float radialBinCentimeters = sim.det.dr;
@@ -564,6 +623,8 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &layers); // layers
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &sim.n_layers); // layerCount
 	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &boundaries); // boundaries
+	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &heights); // heightfield samples for all boundaries
+	CL(SetKernelArg, kernel, argCount++, sizeof(cl_mem), &spacings); // spacings between samples
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &radialBinCount); // size_r
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &angularBinCount); // size_a
 	CL(SetKernelArg, kernel, argCount++, sizeof(int), &depthBinCount); // size_z
@@ -586,7 +647,8 @@ static void setKernelArguments(cl_kernel kernel, SimulationStruct sim, cl_mem la
 /**
 *
 */
-static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, float R_specular, int processCount) {
+static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, cl_kernel kernel, 
+	size_t totalThreadCount, size_t simdThreadCount, float R_specular, int processCount) {
 
 	// Number of unstarted photons
 	uint32_t L = sim->number_of_photons;
@@ -638,7 +700,8 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 /**
 *
 */
-static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, float R_specular, int rank) {
+static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_kernel kernel, 
+	size_t totalThreadCount, size_t simdThreadCount, float R_specular, int rank) {
 
 	// Communication threshold
 	// 0 means that if only one photon finished a request is made to restart it
@@ -710,13 +773,19 @@ static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_ke
 * Do simulation on GPU for all photons assigned to this MPI process
 */
 static void simulate(cl_command_queue cmd, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, 
-uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl_event kernelEvent) {
+uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 	assert(photonCount >= totalThreadCount); // this is a non-sensical low photon count
 
 	size_t photonStateBufferSize = totalThreadCount * sizeof(PhotonTracker);
 
 	uint32_t finishedPhotonCount = 0;
 	uint32_t gpuRoundCounter = 0;
+
+	std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+	cl_event kernelEvent;
+	uint64_t totalKernelTime = 0; // nanoseconds
+	cl_event transferEvent;
+	uint64_t totalTransferTime = 0; // nanoseconds
 
 	if (rank == 0) out << '\n';
 
@@ -732,8 +801,7 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 		gpuRoundCounter++;
 
 		// Download photon states
-		CL(EnqueueReadBuffer, cmd, stateBuffer, CL_FALSE, 0,
-			photonStateBufferSize, CLMEM(stateBuffer), 0, NULL, NULL);
+		CL(EnqueueReadBuffer, cmd, stateBuffer, CL_FALSE, 0, photonStateBufferSize, CLMEM(stateBuffer), 0, NULL, &transferEvent);
 		if (debugBuffer) { // download debug buffer if in debug mode
 			CL(EnqueueReadBuffer, cmd, debugBuffer, CL_FALSE, 0, 2048, CLMEM(debugBuffer), 0, NULL, NULL);
 		}
@@ -741,13 +809,29 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular, cl
 		// Wait for async commands to finish
 		CL(Finish, cmd);
 
+		uint64_t timeStart, timeEnd;
+		CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
+		CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
+		totalKernelTime += (timeEnd - timeStart);
+		CL(GetEventProfilingInfo, transferEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
+		CL(GetEventProfilingInfo, transferEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
+		totalTransferTime += (timeEnd - timeStart);
+
 		restartFinishedPhotons(photonCount, totalThreadCount, &finishedPhotonCount, R_specular);
 
+		// Synchronize to report total progress
+		// (can introduce much waiting time, especially when done in each iteration)
 		uint32_t totalFinishedPhotonCount = finishedPhotonCount;
 		MPI(Reduce, &finishedPhotonCount, &totalFinishedPhotonCount, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		if (rank == 0)
+			out << '\r' << "Photons terminated: " << totalFinishedPhotonCount <<
+				"/" << targetPhotonCount << 
+				", Round " << gpuRoundCounter <<
+				", Time elapsed = " << std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::high_resolution_clock::now() - start).count() / 1000000.0 << "ms" <<
+				", Kernel time = " << totalKernelTime/1000000.0 << "ms" <<
+				", Transfer time = " << totalTransferTime/1000000.0 << "ms" << Log::flush;
 
-		// Print status
-		if (rank == 0) out << '\r' << "Photons terminated: " << totalFinishedPhotonCount << "/" << targetPhotonCount << ", Round " << gpuRoundCounter << Log::flush;
 	}
 	if (rank == 0) out << '\n';
 
@@ -772,6 +856,8 @@ void mcml(
 	Layer* layers,
 	int layerCount,
 	Boundary* boundaries,
+	float* heights,
+	float* spacings,
 	int size_r,
 	int size_a,
 	int size_z,
@@ -786,8 +872,10 @@ void mcml(
 /**
 * Do simulation on CPU, for debug purposes
 */
-static void simulateOnCPU(SimulationStruct sim, Layer* layers, Boundary* boundaries, Weight* R, Weight* A, Weight* T,
-uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
+static void simulateOnCPU(SimulationStruct sim,
+	Layer* layers, Boundary* boundaries, float* heights, float* spacings, Weight* R, Weight* A, Weight* T,
+	uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
+
 	float nAbove = sim.layers[0].n; // first and last layer have only n initialized...
 	float nBelow = sim.layers[sim.n_layers + 1].n; // ...and represent outer media
 	float radialBinCentimeters = sim.det.dr;
@@ -804,6 +892,8 @@ uint32_t photonCount, uint32_t targetPhotonCount, int rank, float R_specular) {
 			layers,
 			sim.n_layers,
 			boundaries,
+			heights,
+			spacings,
 			radialBinCount,
 			angularBinCount,
 			depthBinCount,
@@ -863,11 +953,9 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 /**
 * Write mco file
 */
-static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weight* T_ra, cl_event kernelEvent) {
-	uint64_t timeStart = 0, timeEnd = 0;
-	// CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &timeStart, NULL);
-	// CL(GetEventProfilingInfo, kernelEvent, CL_PROFILING_COMMAND_END, sizeof(uint64_t), &timeEnd, NULL);
-	out << "Last Kerneltime=" << (timeEnd - timeStart) << "ns=" << (timeEnd - timeStart) / 1000000.0f << "ms\n";
+static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weight* T_ra) {
+
+	uint64_t timeStart = 0, timeEnd = 0; //TODO measure total elapsed time
 
 	assert(Write_Simulation_Results(A_rz, T_ra, R_ra, &sim, timeEnd - timeStart));
 	
@@ -881,11 +969,19 @@ static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weigh
 static void freeResources() {
 	for (int i = 0; i < simCount; i++) {
 		free(simulations[i].layers);
+		for (int j = 0; j < simulations[i].n_layers+1; j++) {
+			if (simulations[i].boundaries[j].isHeightfield) {
+				free(simulations[i].boundaries[j].heights);
+				free(simulations[i].boundaries[j].spacings);
+			}
+		}
 		free(simulations[i].boundaries);
 	}
 	free(absorptionPerSimulation);
 	free(transmissionPerSimulation);
 	free(reflectancePerSimulation);
+	free(spacingsPerSimulation);
+	free(heightsPerSimulation);
 	free(boundariesPerSimulation);
 	free(layersPerSimulation);
 	free(simulations);
@@ -907,18 +1003,29 @@ static void freeResources() {
 * Setup all the stuff needed for CL+MPI implementation of MCML
 */
 void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank) {
-	// Read input file with process 0
+
 	bool ignoreA = strstr(kernelOptions, "-D IGNORE_A") != NULL;
-	bool explicitBoundaries = strstr(kernelOptions, "-D EXPLICIT_BOUNDARIES") != NULL; //TODO reading this option should also work in singlemcml build
-	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, explicitBoundaries, &simCount);
+	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, &simCount);
+
+	ignoreHeightfields = strstr(kernelOptions, "-D IGNORE_HEIGHTFIELDS") != NULL;
+	if (!ignoreHeightfields)
+		for (int i = 0; i < simCount; i++)
+			checkBoundaries(simulations[i].boundaries, simulations[i].n_layers + 1);
 
 	#ifndef NO_GPU
-	broadcastInputData(rank);
+	{
+		clock_t start = clock();
+		broadcastInputData(rank);
+		clock_t end = clock();
+		out << "Time spent in MPI broadcast: " << (((double) (end - start)) / CLOCKS_PER_SEC)*1000 << "ms\n";
+	}
 	#endif
 
 	// Allocate per-simulation arrays
 	layersPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
 	boundariesPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+	heightsPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
+	spacingsPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
 	reflectancePerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
 	transmissionPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
 	absorptionPerSimulation = (cl_mem*)malloc(simCount * sizeof(cl_mem));
@@ -961,7 +1068,9 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 		uploadInputArrays(cmdQueue, simulations[simIndex], 
 			layersPerSimulation[simIndex], 
-			boundariesPerSimulation[simIndex]);
+			boundariesPerSimulation[simIndex],
+			heightsPerSimulation[simIndex],
+			spacingsPerSimulation[simIndex]);
 
 		initAndUploadOutputArrays(cmdQueue, simulations[simIndex], 
 			reflectancePerSimulation[simIndex], 
@@ -971,6 +1080,8 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		setKernelArguments(kernel, simulations[simIndex], 
 			layersPerSimulation[simIndex], 
 			boundariesPerSimulation[simIndex],
+			heightsPerSimulation[simIndex],
+			spacingsPerSimulation[simIndex],
 			reflectancePerSimulation[simIndex], 
 			absorptionPerSimulation[simIndex], 
 			transmissionPerSimulation[simIndex]);
@@ -1005,7 +1116,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 				if (rank == 0) { // rank 0 takes the remainder on top
 					processPhotonCount += (targetPhotonCount % processCount);
 				}
-				simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular, 0);
+				simulate(cmdQueue, kernel, totalThreadCount, simdThreadCount, processPhotonCount, targetPhotonCount, rank, R_specular);
 
 			}
 
@@ -1014,6 +1125,8 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 			simulateOnCPU(simulations[simIndex],
 				(Layer*)CLMEM(layersPerSimulation[simIndex]),
 				(Boundary*)CLMEM(boundariesPerSimulation[simIndex]),
+				(float*)CLMEM(heightsPerSimulation[simIndex]),
+				(float*)CLMEM(spacingsPerSimulation[simIndex]),
 				(Weight*)CLMEM(reflectancePerSimulation[simIndex]),
 				(Weight*)CLMEM(absorptionPerSimulation[simIndex]),
 				(Weight*)CLMEM(transmissionPerSimulation[simIndex]),
@@ -1023,16 +1136,32 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 
 
-		downloadOutputArrays(simulations[simIndex], cmdQueue, reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
+		downloadOutputArrays(simulations[simIndex], cmdQueue, 
+			reflectancePerSimulation[simIndex], absorptionPerSimulation[simIndex], transmissionPerSimulation[simIndex]);
 
 
 
+		// Handle data that kernel wrote to debug buffer (kernel DEBUG define required)
 		if (debugBuffer) {
+			// Uncomment to print finished photon counter
+			// uint32_t sum;
+			// MPI(Reduce, CLMEM(debugBuffer), &sum, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+			// if (rank == 0) out << "\nDEBUG PHOTON COUNT = " << sum << "\n\n";
 
-			uint32_t sum;
-			MPI(Reduce, CLMEM(debugBuffer), &sum, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+			// Uncomment to print floats from debug buffer
+			// for (int i = 0; i < 60; i++) {
+			// 	out << ((float*)CLMEM(debugBuffer))[i] << ", ";
+			// }
+			// out << '\n';
 
-			if (rank == 0) out << "\nDEBUG PHOTON COUNT = " << sum << "\n\n";
+			// Uncomment ot print parameters of first two boundaries
+			// out << "isHeightfield = " << ((uint32_t*)CLMEM(debugBuffer))[0] << ", " <<((uint32_t*)CLMEM(debugBuffer))[1] << "\n";
+			// out << "z = " << ((float*)CLMEM(debugBuffer))[2] << ", " << ((float*)CLMEM(debugBuffer))[3] << '\n';
+			// out << "i_heights = " << ((uint32_t*)CLMEM(debugBuffer))[4] << ", " << ((uint32_t*)CLMEM(debugBuffer))[5] << '\n';
+			// out << "n_heights = " << ((uint32_t*)CLMEM(debugBuffer))[6] << ", " << ((uint32_t*)CLMEM(debugBuffer))[7] << '\n';
+			// out << "i_spacings = " << ((uint32_t*)CLMEM(debugBuffer))[8] << ", " << ((uint32_t*)CLMEM(debugBuffer))[9] << '\n';
+			// out << "n_spacings = " << ((uint32_t*)CLMEM(debugBuffer))[10] << ", " << ((uint32_t*)CLMEM(debugBuffer))[11] << '\n';
+			// out << "sizeof(Boundary) = " << ((uint32_t*)CLMEM(debugBuffer))[12] << '\n';
 		}
 
 
@@ -1067,7 +1196,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 		if (rank == 0) {
 			out << "Write to file...\n";
-			writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance, 0);
+			writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance);
 		}
 
 
