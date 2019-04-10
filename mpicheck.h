@@ -1,11 +1,12 @@
 #ifdef NO_GPU
 	// Currently in the NO_GPU build, also MPI is disabled,
-	// since the only purpose right now is simpler debugging.
+	// since the only purpose of the build right now is simpler debugging.
 	// This can change in the future if MPI without CL is needed.
 	#define MPI_Datatype int
 	#define MPI_UINT32_T 0
 	#define MPI_CHAR 0
 	#define MPI_FLOAT 0
+	typedef struct { int MPI_TAG = 0, MPI_SOURCE = 0; } MPI_Status;
 	#define MPICHECK(result)
 	#define MPI(opname, ...)
 #else
