@@ -1,7 +1,6 @@
 #######################################################################################################
 # This python script does automatic test runs of MCML.
-# For some sets of input parameters it runs all combinations.
-# Parameters with physical meaning are taken from a Medical & Biological Engineering & Computing paper.
+# For specified sets of input parameters it runs all combinations.
 #######################################################################################################
 
 import sys
@@ -11,13 +10,11 @@ import tempfile
 import argparse
 import datetime
 
+from heightfieldGenerator import generateZeros, generateCurve, generateNoise
 
 
 
-
-
-
-
+# Parameters with physical meaning from a Medical & Biological Engineering & Computing paper:
 # Modelling the sampling volume for skin blood oxygenation measurements (Meglinsky, 2001)
 # Table 2 Optical properties of skin model (lambda=600nm, Caucasian skin)
 # k Skin layer             mus mua   g    n
@@ -41,12 +38,40 @@ dl = [0.1, 1, 10] # layer thickness
 
 PHOTON_MILLIONS = 10
 
-boundary_presets = { # user can either choose one from here or use implicit flat boundaries
+# user can either choose one from here or use implicit flat boundaries
+boundary_presets = {
 	'flat50': {
-		'description': 'A trivial flat boundary with 50 samples and uniform spacing 0.1.',
-		'data': [0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1, 0.0, 0.1]
-	} #TODO smaller spacing
+		'description': 'A trivial flat boundary with 50 samples and uniform spacing 0.01.',
+		'data': generateZeros(50, 0.01)
+	},
+	'hihill': {
+		'description': 'An upward curve with high curvature',
+		'data': generateCurve(0.2, 50, 0.01)
+	},
+	'lohill': {
+		'description': 'An upward curve with low curvature',
+		'data': generateCurve(0.1, 50, 0.01)
+	},
+	'hicrater': {
+		'description': 'A downward curve with high curvature',
+		'data': generateCurve(-0.2, 50, 0.01)
+	},
+	'locrater': {
+		'description': 'A downward curve with low curvature',
+		'data': generateCurve(-0.1, 50, 0.01)
+	},
+	'hinoise': {
+		'description': 'Noise with high amplitude',
+		'data': generateNoise(0.2, 50, 0.01)
+	},
+	'lonoise': {
+		'description': 'Noise with low amplitude',
+		'data': generateNoise(0.1, 50, 0.01)
+	}
 }
+
+
+# Detection grid:
 
 dz = 0.01 #TODO more resolution
 dr = 0.01
@@ -56,9 +81,8 @@ na = 10
 
 
 
-
-
-
+# MPI:
+#TODO make this optional
 
 useMPI = True
 mpiDebugLevel = 0
@@ -68,13 +92,10 @@ mpiCmd = ['mpiexec', '-debug', str(mpiDebugLevel), '-lines', '-machinefile', mpi
 
 
 
-
-
-
 # Interpret options:
 
 if len(sys.argv) < 2:
-	print('Usage: python tester.py <mcml executable> <optional executable args> --b <first explicit boundaries(*)> -o <optional output folder> -c <other mcml executable to compare with>')
+	print('Usage: python tester.py <mcml executable> <optional executable args> -b <explicit boundaries(*)> -o <optional output folder> -c <other mcml executable to compare with>')
 	
 	print('\nThis script will run multiple MCML simulations with a user-specified implementation, producing mco files.')
 	print('Plots will be created at the end from the mco files, for which it depends on another script plotter.py.')
