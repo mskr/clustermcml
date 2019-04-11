@@ -82,8 +82,6 @@ size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
 
 ## Code TODOs
 
-- **Allow both types of boundaries (flat and heightfield), choosable on per-boundary basis.**
-
 - **Use all available devices: multiple command queues for multiple GPUs, multiple contexts when adding CPUs**
 
 - Consider using -cl-mad-enable, native_log() and other kernel optimizations
