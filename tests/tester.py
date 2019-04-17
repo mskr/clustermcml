@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import argparse
 import datetime
+import copy
 
 from heightfieldGenerator import generateZeros, generateCurve, generateNoise
 
@@ -99,11 +100,6 @@ if len(sys.argv) < 2:
 	
 	print('\n(*) Explicit boundary presets:')
 	for name in boundary_presets: print(name + ' - ' + boundary_presets[name]['description'])
-	
-	print('\nIf no explicit boundaries are specified, implicit flat boundaries are used.')
-	print('If one explicit boundary is specified, it is used above and below one layer.')
-	print('If two explicit boundaries are specified, the first is used above and the second below one layer.')
-	print('If more than two explicit boundaries are specified, the same layer is used multiple times so that all boundaries are used.')
 	exit()
 
 
@@ -180,6 +176,11 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 
 		f.write('1.0\n') # n above
 
+		# How explicit_boundaries list is interpreted:
+		# If no explicit boundaries are specified, implicit flat boundaries are used.
+		# If one explicit boundary is specified, it is used above one layer and an implicit flat boundary is used below.
+		# If two explicit boundaries are specified, the first is used above and the second below one layer.
+		# If more than two explicit boundaries are specified, the same layer is used multiple times so that all boundaries are used.
 		if use_explicit_boundaries and len(explicit_boundaries) > 1:
 			# In the current "boundary-centric" test, one layer is repeated
 			# with the same parameters to use all specified boundaries
@@ -193,9 +194,8 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 			boundary_indicator = 'b ' + str(int(len(explicit_boundaries[0]) / 2)) + ' '
 			f.write(boundary_indicator + ' '.join(str(f) for f in explicit_boundaries[0]) + '\n') # boundary
 			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer
-			f.write(boundary_indicator + ' '.join(str(f) for f in explicit_boundaries[0]) + '\n') # boundary
 		else:
-			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer 1
+			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer
 
 		f.write('1.0') # n below
 
@@ -315,24 +315,29 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 # 					runOneTest(mua_i, mus_i, g_i, n_i, dl_i, len(mua)*len(mus)*len(g)*len(n)*len(dl))
 
 
-maxsims = 13
-# Varying mua, mus
-runOneTest(1, 1, 0, 1.3, 0.1, maxsims)
-runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-runOneTest(10, 100, 0, 1.3, 0.1, maxsims)
-# Varying g
-runOneTest(1, 10, -0.5, 1.3, 0.1, maxsims)
-runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-runOneTest(1, 10, 0.5, 1.3, 0.1, maxsims)
-# Varying n
-runOneTest(1, 10, 0, 1.1, 0.1, maxsims)
-runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-runOneTest(1, 10, 0, 1.5, 0.1, maxsims)
-runOneTest(1, 10, 0, 2.0, 0.1, maxsims)
-# Varying d
-runOneTest(1, 10, 0, 1.3, 0.01, maxsims)
-runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-runOneTest(1, 10, 0, 1.3, 1, maxsims)
+# Test only few but relevant combinations
+boundaries = copy.deepcopy(explicit_boundaries)
+for b in boundaries:
+	# Test boundaries one by one instead of all in single simulation
+	explicit_boundaries = [b] # set boundary at top of one layer
+	maxsims = 13
+	# Varying mua, mus
+	runOneTest(1, 1, 0, 1.3, 0.1, maxsims)
+	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+	runOneTest(10, 100, 0, 1.3, 0.1, maxsims)
+	# Varying g
+	runOneTest(1, 10, -0.5, 1.3, 0.1, maxsims)
+	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+	runOneTest(1, 10, 0.5, 1.3, 0.1, maxsims)
+	# Varying n
+	runOneTest(1, 10, 0, 1.1, 0.1, maxsims)
+	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+	runOneTest(1, 10, 0, 1.5, 0.1, maxsims)
+	runOneTest(1, 10, 0, 2.0, 0.1, maxsims)
+	# Varying d
+	runOneTest(1, 10, 0, 1.3, 0.01, maxsims)
+	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+	runOneTest(1, 10, 0, 1.3, 1, maxsims)
 
 
 
