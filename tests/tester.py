@@ -36,7 +36,7 @@ g = [0, 0.5, 0.9]  # scattering anisotropy https://omlc.org/classroom/ece532/cla
 n = [1.2701, 1.34, 1.44] # refractive indices
 dl = [0.1, 1, 10] # layer thickness
 
-PHOTON_MILLIONS = 10
+PHOTON_MILLIONS = 100
 
 # user can either choose one from here or use implicit flat boundaries
 boundary_presets = {
@@ -81,32 +81,20 @@ na = 10
 
 
 
-# MPI:
-#TODO make this optional
-
-useMPI = True
-mpiDebugLevel = 0
-mpiMachinefile = 'mpi.txt'
-mpiCmd = ['mpiexec', '-debug', str(mpiDebugLevel), '-lines', '-machinefile', mpiMachinefile, '-pwd', 'S>v2zv]08ct/lg4+9{lvi-[bcv-Qc4[|]$ne1NE~']
-
-
-
-
 # Interpret options:
 
 if len(sys.argv) < 2:
-	print('Usage: python tester.py <mcml executable> <optional executable args> -b <explicit boundaries(*)> -o <optional output folder> -c <other mcml executable to compare with>')
 	
-	print('\nThis script will run multiple MCML simulations with a user-specified implementation, producing mco files.')
-	print('Plots will be created at the end from the mco files, for which it depends on another script plotter.py.')
-	
+	print('This script tests a user-specified MCML implementation with automated parameter combinations, producing mco files and plots.')
+	print('For the plots it depends on the script plotter.py, which can also be used standalone.')
+
+	print('\nUsage: python tester.py <mcml executable> <optional executable args> -b <optional explicit boundaries(*)> -o <optional output folder> -c <optional mcml executable to compare with>')
+	print('Example: python tester.py ../clustermcml-windows.exe mcmlKernel.c "-Werror" -b lohill flat50 -o mytest1')
+
 	print('\nYou can specify an executable in any folder, which the exe will recognize as its current working directory, e.g. to find kernel files to compile.')
 	
-	print('\nHardcoded at the top of the script you can find lists of values for MCML input parameters.')
-	print('The script will iterate these lists to start a simulation for all possible combinations.')
-	
 	print('\nOutput files have the following naming convention:')
-	print('<number of photons>_<absorption coefficient mua>_<scattering coefficient mus>_<scattering anisotropy g>_<refractive index n>.mco')
+	print('<number of photons>_<absorption coefficient mua>_<scattering coefficient mus>_<scattering anisotropy g>_<refractive index n>_<layer thickness dl>.mco')
 	print('For each mco file, a folder with the same name is created to store the plots.')
 	
 	print('\n(*) Explicit boundary presets:')
@@ -122,11 +110,11 @@ if len(sys.argv) < 2:
 
 #TODO proper argument handling
 
-# parser = argparse.ArgumentParser('Test mcml implementation with many input parameter combinations')
+# parser = argparse.ArgumentParser('Test mcml implementation with automated parameter combinations')
 
 # parser.add_argument('mcml_exe', type=str, nargs='+', help='mcml executable')
 
-# parser.add_argument('-b', dest='') #TODO new concept for providing list of explicit boundaries
+# parser.add_argument('-b', dest='') #TODO cannot handle lists => implement new concept for providing list of explicit boundaries
 
 
 mcml_exe = []
@@ -159,6 +147,17 @@ COMPARE_MODE_ENABLED = (len(compare_mcml_exe) > 0)
 
 
 
+# MPI:
+#TODO make this optional
+
+USE_MPI = True
+mpiDebugLevel = 0
+mpiMachinefile = 'mpi.txt'
+mpiCmd = ['mpiexec', '-debug', str(mpiDebugLevel), '-lines', '-machinefile', mpiMachinefile, '-pwd', 'S>v2zv]08ct/lg4+9{lvi-[bcv-Qc4[|]$ne1NE~']
+
+
+
+
 
 
 
@@ -182,14 +181,19 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 		f.write('1.0\n') # n above
 
 		if use_explicit_boundaries and len(explicit_boundaries) > 1:
+			# In the current "boundary-centric" test, one layer is repeated
+			# with the same parameters to use all specified boundaries
 			for i in range(0, len(explicit_boundaries)-1):
-				f.write(' '.join(str(f) for f in explicit_boundaries[i]) + '\n')
-				f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n')
-			f.write(' '.join(str(f) for f in explicit_boundaries[len(explicit_boundaries)-1]) + '\n')
+				boundary_indicator = 'b ' + str(int(len(explicit_boundaries[i]) / 2)) + ' '
+				f.write(boundary_indicator + ' '.join(str(f) for f in explicit_boundaries[i]) + '\n') # boundary
+				f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer
+			boundary_indicator = 'b ' + str(int(len(explicit_boundaries[len(explicit_boundaries)-1]) / 2)) + ' '
+			f.write(boundary_indicator + ' '.join(str(f) for f in explicit_boundaries[len(explicit_boundaries)-1]) + '\n') # boundary
 		elif use_explicit_boundaries and len(explicit_boundaries) > 0:
-			f.write(' '.join(str(f) for f in explicit_boundaries[0]) + '\n')
-			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n')
-			f.write(' '.join(str(f) for f in explicit_boundaries[0]) + '\n')
+			boundary_indicator = 'b ' + str(int(len(explicit_boundaries[0]) / 2)) + ' '
+			f.write(boundary_indicator + ' '.join(str(f) for f in explicit_boundaries[0]) + '\n') # boundary
+			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer
+			f.write(boundary_indicator + ' '.join(str(f) for f in explicit_boundaries[0]) + '\n') # boundary
 		else:
 			f.write(str(n_i)+' '+str(mua_i)+' '+str(mus_i)+' '+str(g_i)+' '+str(dl_i)+'\n') # layer 1
 
@@ -197,105 +201,142 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 
 
 
-
-# Run simulations:
-
-mcos = []
+mcos = [] # gets filled with names of produced output files
+failed_mcos = []
 
 simcount = 0
-maxsims = str(len(mua)*len(mus)*len(g)*len(n)*len(dl))
 
-for mua_i in mua:
-	for mus_i in mus:
-		for g_i in g:
-			for n_i in n:
-				for dl_i in dl:
+def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 
-					simcount += 1
+	global simcount
+	simcount += 1
 
-					# Make a compact string containing important mcml config paramenters of current run
-					config_str = out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n_'+str(dl_i)
+	# Make a compact string containing important mcml config paramenters of current run
+	config_str = out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n_'+str(dl_i)+'dl'
 
-					# Compare mode requires 2 runs, for both executables
-					C = (2 if COMPARE_MODE_ENABLED else 1)
-					is_compare = 1 # index of the comparison run
+	# Compare mode requires 2 runs, for both executables
+	C = (2 if COMPARE_MODE_ENABLED else 1)
+	is_compare = 1 # index of the comparison run
 
-					for c_i in range(0, C):
+	for c_i in range(0, C):
 
-						mco = config_str
+		mco = config_str
 
-						# In compare mode append executable basenames to mco for clear differentiation
-						if c_i==is_compare:
-							mco += '_' + os.path.splitext(os.path.basename(compare_mcml_exe[0]))[0]
-						elif COMPARE_MODE_ENABLED:
-							mco += '_' + os.path.splitext(os.path.basename(mcml_exe[0]))[0]
+		# In compare mode append executable basenames to mco for clear differentiation
+		if c_i==is_compare:
+			mco += '_' + os.path.splitext(os.path.basename(compare_mcml_exe[0]))[0]
+		elif COMPARE_MODE_ENABLED:
+			mco += '_' + os.path.splitext(os.path.basename(mcml_exe[0]))[0]
 
-						mco = os.path.abspath(mco + '.mco')
+		mco = os.path.abspath(mco + '.mco')
 
-						if (os.path.isfile(mco)):
-							print('[SKIP] existing ' + str(mco))
-							mcos.append(mco) # need this later for plotting
-							continue
+		if (os.path.isfile(mco)):
+			print('[SKIP] existing ' + str(mco))
+			mcos.append(mco) # need this later for plotting
+			continue
 
-						mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
+		mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
 
-						use_explicit_boundaries = (len(explicit_boundaries) > 0 and c_i!=is_compare) # never want explicit boundaries for compare exe
-						makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
+		use_explicit_boundaries = (len(explicit_boundaries) > 0 and c_i!=is_compare) # never want explicit boundaries for compare exe
+		makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 
-						print('===========================================================')
-						print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims) + ', t = ' + str(datetime.datetime.now()))
-						print('===========================================================')
-						print('[INPUT] ' + mci + ':')
-						with open(mci, 'r') as f:
-							print(f.read())
-						print('===========================================================')
+		print('===========================================================')
+		print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims) +
+			', compare = ' + str(c_i==is_compare) +
+			', t = ' + str(datetime.datetime.now()) )
+		print('===========================================================')
+		print('[INPUT] ' + mci + ':')
+		with open(mci, 'r') as f:
+			print(f.read())
+		print('===========================================================')
 
-						success = False
+		success = False
+		retry_count = 0
+		max_retries = 3
 
-						while not success:
+		while not success and not retry_count > max_retries:
 
-							# If using MPI, we actually execute mpiexec and pass mcml executable as argument
+			# If using MPI, we actually execute mpiexec and pass mcml executable as argument
 
-							# First part of executable path is used as cwd, second as mpiexec argument
-							pathPair = os.path.split(mcml_exe[0])
+			# First part of executable path is used as cwd, second as mpiexec argument
+			pathPair = os.path.split(mcml_exe[0])
 
-							cwd = pathPair[0]
+			cwd = pathPair[0]
 
-							cmd = [*mcml_exe, mci]
+			cmd = [*mcml_exe, mci]
 
-							if useMPI:
-								cmd[0] = pathPair[1]
-								cmd = mpiCmd + cmd
+			if USE_MPI:
+				cmd[0] = pathPair[1]
+				cmd = mpiCmd + cmd
 
-							if c_i==is_compare:
-								cmd = [*compare_mcml_exe, mci]
-								cwd = '.'
+			# Compare exe currently never uses MPI or another cwd
+			if c_i==is_compare:
+				cmd = [*compare_mcml_exe, mci]
+				cwd = '.'
 
-							print('[EXEC] ' + str(cmd) + ':')
-							result = subprocess.run(cmd, cwd=cwd)
+			print('[EXEC] ' + str(cmd) + ':')
+			result = subprocess.run(cmd, cwd=cwd)
 
-							print('===========================================================')
-							try:
-								result.check_returncode()
+			print('===========================================================')
+			try:
+				result.check_returncode()
 
-								print('[OUTPUT] ' + mco)
-
-
-								if COMPARE_MODE_ENABLED and c_i==is_compare:
-									print('[PLOTTING]', mcos[len(mcos)-1], mco)
-									subprocess.run(['python', 'plotter.py', mcos[len(mcos)-1], mco, '--compare', '-o', config_str])
-								elif not COMPARE_MODE_ENABLED:
-									print('[PLOTTING]')
-									subprocess.run(['python', 'plotter.py', mco])
-
-								mcos.append(mco)
-
-								success = True
-
-							except subprocess.CalledProcessError as err:
-								print('[FAILED] ' + str(err))
-								print('Retrying...')
-							print('\n\n')
+				print('[OUTPUT] ' + mco)
 
 
-print('[FINISHED] ' + str(len(mcos)) + ' mco files produced')
+				if COMPARE_MODE_ENABLED and c_i==is_compare:
+					print('[PLOTTING]', mcos[len(mcos)-1], mco)
+					subprocess.run(['python', 'plotter.py', mcos[len(mcos)-1], mco, '--compare', '-o', config_str])
+				elif not COMPARE_MODE_ENABLED:
+					print('[PLOTTING]')
+					subprocess.run(['python', 'plotter.py', mco])
+
+				mcos.append(mco)
+
+				success = True
+
+			except subprocess.CalledProcessError as err:
+				print('[FAILED] ' + str(err))
+				print('Retrying...')
+				retry_count += 1
+				if retry_count == max_retries:
+					failed_mcos.append(mco)
+			print('\n\n')
+
+
+
+# Uncomment to test all combinations of above parameters
+# for mua_i in mua:
+# 	for mus_i in mus:
+# 		for g_i in g:
+# 			for n_i in n:
+# 				for dl_i in dl:
+
+# 					runOneTest(mua_i, mus_i, g_i, n_i, dl_i, len(mua)*len(mus)*len(g)*len(n)*len(dl))
+
+
+maxsims = 13
+# Varying mua, mus
+runOneTest(1, 1, 0, 1.3, 0.1, maxsims)
+runOneTest(10, 1, 0, 1.3, 0.1, maxsims)
+runOneTest(100, 10, 0, 1.3, 0.1, maxsims)
+# Varying g
+runOneTest(1, 10, -5, 1.3, 0.1, maxsims)
+runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+runOneTest(1, 10, 5, 1.3, 0.1, maxsims)
+# Varying n
+runOneTest(1, 10, 0, 1.1, 0.1, maxsims)
+runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+runOneTest(1, 10, 0, 1.5, 0.1, maxsims)
+runOneTest(1, 10, 0, 2.0, 0.1, maxsims)
+# Varying d
+runOneTest(1, 10, 0, 1.3, 0.01, maxsims)
+runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+runOneTest(1, 10, 0, 1.3, 1, maxsims)
+
+
+
+
+print('[FINISHED] ' + str(len(mcos)) + ' mco files successfully produced.')
+print(str(len(failed_mcos)) + ' simulations failed' + (':' if len(failed_mcos) > 0 else '.'))
+for mco in failed_mcos: print(mco)
