@@ -89,10 +89,11 @@ if len(sys.argv) < 2:
 	print('This script tests a user-specified MCML implementation with automated parameter combinations, producing mco files and plots.')
 	print('For the plots it depends on the script plotter.py, which can also be used standalone.')
 
-	print('\nUsage: python tester.py <mcml executable> <optional executable args> -b <optional explicit boundaries(*)> -o <optional output folder> -c <optional mcml executable to compare with>')
-	print('Example: python tester.py ../clustermcml-windows.exe mcmlKernel.c "-Werror" -b lohill flat50 -o mytest1')
+	print('\nUsage: python tester.py <mcml executable> <optional executable args> -b <optional explicit boundaries(*)> -o <optional output folder> -c <optional mcml executable to compare with> -mpi')
+	print('Example: python tester.py ../clustermcml-windows.exe mcmlKernel.c "-Werror" -b lohill flat50 -o mytest1 -mpi')
 
 	print('\nYou can specify an executable in any folder, which the exe will recognize as its current working directory, e.g. to find kernel files to compile.')
+	print('The optional -mpi flag enables MPI, i.e. runs the executable using mpiexec (machinefile is mpi.txt, pwd is hardcoded).')
 	
 	print('\nOutput files have the following naming convention:')
 	print('<number of photons>_<absorption coefficient mua>_<scattering coefficient mus>_<scattering anisotropy g>_<refractive index n>_<layer thickness dl>.mco')
@@ -104,26 +105,25 @@ if len(sys.argv) < 2:
 
 
 
-#TODO proper argument handling
-
+#FIXME Current command line arg parsing is order dependent
+# Python has proper argparse API:
 # parser = argparse.ArgumentParser('Test mcml implementation with automated parameter combinations')
-
 # parser.add_argument('mcml_exe', type=str, nargs='+', help='mcml executable')
-
 # parser.add_argument('-b', dest='') #TODO cannot handle lists => implement new concept for providing list of explicit boundaries
 
-
 mcml_exe = []
-while len(sys.argv)>1 and sys.argv[1]!='-b' and sys.argv[1]!='-o' and sys.argv[1]!='-c':
-	mcml_exe.append(sys.argv.pop(1))
+while len(sys.argv)>1 and sys.argv[1]!='-b' and sys.argv[1]!='-o' and sys.argv[1]!='-c' and sys.argv[1]!='-mpi':
+	mcml_exe.append(sys.argv.pop(1)) # pop argument, i.e. consume, so that further arg parsing is not dependent
 
 explicit_boundaries = []
+boundary_names = []
 if len(sys.argv)>2 and sys.argv[1]=='-b':
 	sys.argv.pop(1)
-	while len(sys.argv)>1 and sys.argv[1]!='-o' and sys.argv[1]!='-c':
+	while len(sys.argv)>1 and sys.argv[1]!='-o' and sys.argv[1]!='-c' and sys.argv[1]!='-mpi':
 		b = sys.argv.pop(1)
 		try:
 			explicit_boundaries.append(boundary_presets[b]['data'])
+			boundary_names.append(b)
 		except KeyError:
 			print('Preset boundary ' + b + ' does not exist')
 			exit()
@@ -141,15 +141,15 @@ if len(sys.argv)>2 and sys.argv[1]=='-c':
 
 COMPARE_MODE_ENABLED = (len(compare_mcml_exe) > 0)
 
-
-
-# MPI:
-#TODO make this optional
-
-USE_MPI = True
+USE_MPI = False
 mpiDebugLevel = 0
 mpiMachinefile = 'mpi.txt'
 mpiCmd = ['mpiexec', '-debug', str(mpiDebugLevel), '-lines', '-machinefile', mpiMachinefile, '-pwd', 'S>v2zv]08ct/lg4+9{lvi-[bcv-Qc4[|]$ne1NE~']
+if len(sys.argv)>1 and sys.argv[1]=='-mpi':
+	sys.argv.pop(1)
+	USE_MPI = True
+
+
 
 
 
@@ -200,16 +200,12 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 		f.write('1.0') # n below
 
 
-
-mcos = [] # gets filled with names of produced output files
+successful_mcos = []
 failed_mcos = []
 
-simcount = 0
+def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, name_postfix=''):
 
-def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
-
-	global simcount
-	simcount += 1
+	mcos = []
 
 	# Make a compact string containing important mcml config paramenters of current run
 	config_str = out_folder + str(PHOTON_MILLIONS)+'M_'+str(mua_i)+'mua_'+str(mus_i)+'mus_'+str(g_i)+'g_'+str(n_i)+'n_'+str(dl_i)+'dl'
@@ -220,7 +216,7 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 
 	for c_i in range(0, C):
 
-		mco = config_str
+		mco = config_str + '_' + name_postfix
 
 		# In compare mode append executable basenames to mco for clear differentiation
 		if c_i==is_compare:
@@ -231,6 +227,7 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 		mco = os.path.abspath(mco + '.mco')
 
 		if (os.path.isfile(mco)):
+			print('==============================================================')
 			print('[SKIP] existing ' + str(mco))
 			mcos.append(mco) # need this later for plotting
 			continue
@@ -240,15 +237,14 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 		use_explicit_boundaries = (len(explicit_boundaries) > 0 and c_i!=is_compare) # never want explicit boundaries for compare exe
 		makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 
-		print('===========================================================')
-		print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims) +
-			', compare = ' + str(c_i==is_compare) +
-			', t = ' + str(datetime.datetime.now()) )
-		print('===========================================================')
+		if c_i == is_compare:
+			print('==============================================================')
+			print('[COMPARE]')
+		print('==============================================================')
 		print('[INPUT] ' + mci + ':')
 		with open(mci, 'r') as f:
 			print(f.read())
-		print('===========================================================')
+		print('==============================================================')
 
 		success = False
 		retry_count = 0
@@ -277,22 +273,11 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 			print('[EXEC] ' + str(cmd) + ':')
 			result = subprocess.run(cmd, cwd=cwd)
 
-			print('===========================================================')
+			print('==============================================================')
 			try:
 				result.check_returncode()
-
 				print('[OUTPUT] ' + mco)
-
-
-				if COMPARE_MODE_ENABLED and c_i==is_compare:
-					print('[PLOTTING]', mcos[len(mcos)-1], mco)
-					subprocess.run(['python', 'plotter.py', mcos[len(mcos)-1], mco, '--compare', '-o', config_str])
-				elif not COMPARE_MODE_ENABLED:
-					print('[PLOTTING]')
-					subprocess.run(['python', 'plotter.py', mco])
-
 				mcos.append(mco)
-
 				success = True
 
 			except subprocess.CalledProcessError as err:
@@ -303,6 +288,38 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 					failed_mcos.append(mco)
 			print('\n\n')
 
+	successful_mcos.extend(mcos)
+	return config_str, mcos
+
+
+# Print progress info
+simcount = 0
+def progress(maxsims):
+	global simcount
+	simcount += 1
+	print('==============================================================')
+	print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims) +
+		', t = ' + str(datetime.datetime.now()) +
+		'\nsuccessful: ' + str(len(successful_mcos)) +
+		'\nfailed:     ' + str(len(failed_mcos)) )
+
+
+# Plot array of mcos
+def plot(outfolder, mcos, isCompare):
+	print('==============================================================')
+	print('[PLOTTING]', *mcos)
+	cmd = ['python', 'plotter.py', *mcos, '-o', outfolder]
+	if isCompare: cmd.append('--compare')
+	subprocess.run(cmd)
+
+
+# Save mcos in groups to be plotted in compare mode
+plot_groups = {}
+def addToPlotGroup(name, mcos):
+	try:
+		plot_groups[name].extend(mcos)
+	except KeyError:
+		plot_groups[name] = mcos
 
 
 # Uncomment to test all combinations of above parameters
@@ -311,37 +328,59 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 # 		for g_i in g:
 # 			for n_i in n:
 # 				for dl_i in dl:
+# 					progress(len(mua)*len(mus)*len(g)*len(n)*len(dl))
+# 					plot(*runOneTest(mua_i, mus_i, g_i, n_i, dl_i), COMPARE_MODE_ENABLED)
 
-# 					runOneTest(mua_i, mus_i, g_i, n_i, dl_i, len(mua)*len(mus)*len(g)*len(n)*len(dl))
+
 
 
 # Test only few but relevant combinations
+maxsims = 13 * len(explicit_boundaries)
 boundaries = copy.deepcopy(explicit_boundaries)
-for b in boundaries:
+for i in range(0, len(boundaries)):
 	# Test boundaries one by one instead of all in single simulation
-	explicit_boundaries = [b] # set boundary at top of one layer
-	maxsims = 13
+	explicit_boundaries = [boundaries[i]] # set boundary at top of one layer
+	b = boundary_names[i]
 	# Varying mua, mus
-	runOneTest(1, 1, 0, 1.3, 0.1, maxsims)
-	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-	runOneTest(10, 100, 0, 1.3, 0.1, maxsims)
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 1, 0, 1.3, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(10, 100, 0, 1.3, 0.1, b))
 	# Varying g
-	runOneTest(1, 10, -0.5, 1.3, 0.1, maxsims)
-	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-	runOneTest(1, 10, 0.5, 1.3, 0.1, maxsims)
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, -0.5, 1.3, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0.5, 1.3, 0.1, b))
 	# Varying n
-	runOneTest(1, 10, 0, 1.1, 0.1, maxsims)
-	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-	runOneTest(1, 10, 0, 1.5, 0.1, maxsims)
-	runOneTest(1, 10, 0, 2.0, 0.1, maxsims)
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.1, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.5, 0.1, b))
+	progress(maxsims)
+	addToPlotGroup(*runOneTest(1, 10, 0, 2.0, 0.1, b))
 	# Varying d
-	runOneTest(1, 10, 0, 1.3, 0.01, maxsims)
-	runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-	runOneTest(1, 10, 0, 1.3, 1, maxsims)
+	progress(maxsims)
+	plot_groups[10].extend(runOneTest(1, 10, 0, 1.3, 0.01, b))
+	progress(maxsims)
+	plot_groups[11].extend(runOneTest(1, 10, 0, 1.3, 0.1, b))
+	progress(maxsims)
+	plot_groups[12].extend(runOneTest(1, 10, 0, 1.3, 1, b))
 
 
 
 
-print('[FINISHED] ' + str(len(mcos)) + ' mco files successfully produced.')
+# Plot groups in compare mode
+for name in plot_groups:
+	plot(name, plot_groups[name], True)
+
+
+
+print('[FINISHED] ' + str(len(successful_mcos)) + ' mco files successfully produced.')
 print(str(len(failed_mcos)) + ' simulations failed' + (':' if len(failed_mcos) > 0 else '.'))
 for mco in failed_mcos: print(mco)
