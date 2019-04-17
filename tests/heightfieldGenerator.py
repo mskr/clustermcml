@@ -7,22 +7,33 @@ import matplotlib.pyplot as PLT
 import math
 
 
-def centerAroundMean(heightfield):
-	nsamples = int(len(heightfield)/2)
-	h_sum = 0
-	for i in range(0, nsamples):
-		h_sum = h_sum + heightfield[i*2]
-	h_mean = h_sum / nsamples
-	for i in range(0, nsamples):
-		heightfield[i*2] = heightfield[i*2] - h_mean
-	return heightfield
-
-
+# Generate flat heightfield of given size with given uniform spacing
 def generateZeros(nsamples, spacing):
 	heightfield = []
 	for i in range(0, nsamples):
 		heightfield.append(0)
 		heightfield.append(spacing)
+	return heightfield
+
+# Center heightfield to be "comparable" with flat surface
+def centerAroundMean(heightfield):
+	nsamples = int(len(heightfield)/2)
+
+	# Get mean height, with respect to area.
+	# Note that outer values contribute to a larger part of the radial surface.
+	r = 0
+	numer = 0
+	denom = 0
+	for i in range(0, nsamples):
+		r += heightfield[i*2+1]
+		numer += heightfield[i*2] * 2*math.pi*r
+		denom += 2*math.pi*r
+
+	h_mean = numer / denom
+
+	for i in range(0, nsamples):
+		heightfield[i*2] -= h_mean
+
 	return heightfield
 
 
@@ -31,6 +42,7 @@ def generateZeros(nsamples, spacing):
 #   __
 #     ''''----____
 #
+# Spacing is uniform.
 def generateCurve(maxheight, nsamples, spacing):
 	a_max = math.pi/4 # maximum angle (end of curve)
 
@@ -51,6 +63,7 @@ def generateCurve(maxheight, nsamples, spacing):
 	return centerAroundMean(heightfield)
 
 
+# Generate uniform noise with uniform spacing
 def generateNoise(maxheight, nsamples, spacing):
 	heights = NUM.random.sample(nsamples).tolist()
 	heights = list(map(lambda h : h * maxheight, heights))
@@ -64,5 +77,5 @@ def generateNoise(maxheight, nsamples, spacing):
 
 # Uncomment to test generators visually
 # PLT.figure(1)
-# PLT.plot( generateCurve(-2, 50, 0.01)[0::2] ) # plot only every 2nd element, i.e. height values
+# PLT.plot( generateCurve(-5, 50, 0.01)[0::2] ) # plot only every 2nd element, i.e. height values
 # PLT.show()
