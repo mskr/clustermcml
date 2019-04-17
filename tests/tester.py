@@ -318,12 +318,12 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, maxsims):
 maxsims = 13
 # Varying mua, mus
 runOneTest(1, 1, 0, 1.3, 0.1, maxsims)
-runOneTest(10, 1, 0, 1.3, 0.1, maxsims)
-runOneTest(100, 10, 0, 1.3, 0.1, maxsims)
-# Varying g
-runOneTest(1, 10, -5, 1.3, 0.1, maxsims)
 runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
-runOneTest(1, 10, 5, 1.3, 0.1, maxsims)
+runOneTest(10, 100, 0, 1.3, 0.1, maxsims)
+# Varying g
+runOneTest(1, 10, -0.5, 1.3, 0.1, maxsims)
+runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
+runOneTest(1, 10, 0.5, 1.3, 0.1, maxsims)
 # Varying n
 runOneTest(1, 10, 0, 1.1, 0.1, maxsims)
 runOneTest(1, 10, 0, 1.3, 0.1, maxsims)
