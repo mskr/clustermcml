@@ -289,8 +289,11 @@ static void setupInputArrays(SimulationStruct sim, int simIndex) {
 		if (sim.boundaries[i].isHeightfield && !ignoreHeightfields)
 			totalSampleCount += sim.boundaries[i].n;
 
-	heightsPerSimulation[simIndex] = CLMALLOC_INPUT(totalSampleCount, float);
-	spacingsPerSimulation[simIndex] = CLMALLOC_INPUT(totalSampleCount, float);
+	// If there are no explicit boundaries, i.e. no height values,
+	// create 1 byte buffer which is never used, to prevent CL_INVALID_BUFFER_SIZE
+	unsigned int tmp = totalSampleCount > 0 ? totalSampleCount : 1;
+	heightsPerSimulation[simIndex] = CLMALLOC_INPUT(tmp, float);
+	spacingsPerSimulation[simIndex] = CLMALLOC_INPUT(tmp, float);
 
 	unsigned int sampleCount = 0;
 
