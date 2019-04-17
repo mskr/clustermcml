@@ -33,7 +33,8 @@ Plottable = Enum('Plottable', 'NONE A_l A_z Rd_r Rd_a Tt_r Tt_a A_rz Rd_ra Tt_ra
 ########################################################################################
 
 
-#
+# Plot and label 2- or 3-dimensional data array
+# Return PDF file path to be saved
 def plotToPDF_internal(folder, components, data, resolutions, units):
 
 	path = ''
@@ -42,7 +43,7 @@ def plotToPDF_internal(folder, components, data, resolutions, units):
 		PLT.plot(data)
 		PLT.title(components[0]+'_'+components[1])
 		PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
-		PLT.ylabel(components[0])
+		PLT.ylabel(components[0]+' ['+str(resolutions[1])+units[1]+']')
 		PLT.yscale('log')
 		path = folder + '/' + components[0]+'_'+components[1] + '.pdf'
 	
@@ -51,10 +52,13 @@ def plotToPDF_internal(folder, components, data, resolutions, units):
 		PLT.title(components[0]+'_'+components[1]+'_'+components[2])
 		PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
 		PLT.ylabel(components[2]+' ['+str(resolutions[1])+units[1]+']')
+		#TODO label for 3rd dimension (unit of radiance)
 		PLT.colorbar()
 		path = folder + '/' + components[0]+'_'+components[1]+'_'+components[2] + '.pdf'
 
-		# cut away low pixels to see the few actual data points
+		#FIXME For now, cut away low pixels to see the few actual data points, 
+		# but this is not good anymore when grid size changes.
+		# Please fix this when actually using the 3D data.
 		PLT.ylim(len(data[0])*0.1, 0)
 		PLT.xlim(0, len(data)*0.01)
 
@@ -63,7 +67,7 @@ def plotToPDF_internal(folder, components, data, resolutions, units):
 
 	return path
 
-#
+# Plot one 2- or 3-dimensional data array
 def plotToPDF(folder, components, data, resolutions, units):
 
 	PLT.figure()
@@ -76,7 +80,7 @@ def plotToPDF(folder, components, data, resolutions, units):
 	
 	print('Written ' + path)
 
-#
+# Plot a batch of data arrays
 def plotAllToPDF(folder, components, data_arrays, resolutions, units, data_names):
 
 	PLT.figure()
@@ -304,22 +308,22 @@ for i in range(0, len(args.files)):
 		else:
 
 			folder = mco[0:-4]
-			plotToPDF(folder, ['Rd', 'r'], Rd_r, [dr], ['cm'])
-			plotToPDF(folder, ['Rd', 'a'], Rd_a, [na/90.0], ['deg'])
-			plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0], ['cm', 'deg'])
-			plotToPDF(folder, ['A', 'l'], A_l, [1], [''])
-			plotToPDF(folder, ['A', 'z'], A_z, [dz], ['cm'])
-			plotToPDF(folder, ['A', 'r', 'z'], A_rz, [dr, dz], ['cm', 'cm'])
-			plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0], ['cm', 'deg'])
-			plotToPDF(folder, ['Tt', 'r'], Tt_r, [dr], ['cm'])
-			plotToPDF(folder, ['Tt', 'a'], Tt_a, [na/90.0], ['deg'])
+			plotToPDF(folder, ['Rd', 'r'],      Rd_r,  [dr, 1],          ['cm', 'cm-2'])
+			plotToPDF(folder, ['Rd', 'a'],      Rd_a,  [na/90.0, 1],     ['deg', 'cm-2'])
+			plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2'])
+			plotToPDF(folder, ['A', 'l'],       A_l,   [1, 1],           ['layer', 'cm-3'])
+			plotToPDF(folder, ['A', 'z'],       A_z,   [dz, 1],          ['cm', 'cm-3'])
+			plotToPDF(folder, ['A', 'r', 'z'],  A_rz,  [dr, dz, 1],      ['cm', 'cm', 'cm-3'])
+			plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2'])
+			plotToPDF(folder, ['Tt', 'r'],      Tt_r,  [dr, 1],          ['cm', 'cm-2'])
+			plotToPDF(folder, ['Tt', 'a'],      Tt_a,  [na/90.0, 1],     ['deg', 'cm-2'])
 
 
 if args.COMPARE_MODE_ENABLED:
 
 	mcos = list(map(lambda mco: os.path.split(mco)[1], mcos))
 
-	plotAllToPDF(args.outFolder, ['Rd', 'r'], Rd_r_arrays, [last_dr], ['cm'], mcos)
-	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0], ['deg'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'r'], Tt_r_arrays, [dr], ['cm'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0], ['deg'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd', 'r'], Rd_r_arrays, [last_dr, 1], ['cm', 'cm-2'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0, 1], ['deg', 'cm-2'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'r'], Tt_r_arrays, [dr, 1],      ['cm', 'cm-2'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0, 1], ['deg', 'cm-2'], mcos)
