@@ -132,24 +132,32 @@ static void dumpHeightfieldData(unsigned int boundaryCount, cl_mem boundaries, c
 		RHeightfield field = CLMEM_ACCESS_AOS(CLMEM(boundaries), Boundary, i, heightfield);
 		std::cout << std::endl << "Boundary " << i <<":" << std::endl;
 
-		std::cout << "isHeightfield = " << (bool)CLMEM_ACCESS_AOS(CLMEM(boundaries), Boundary, i, isHeightfield) << std::endl;
-		std::cout << "z = " << (float)CLMEM_ACCESS_AOS(CLMEM(boundaries), Boundary, i, z) << std::endl;
+		bool isHeightfield = (bool)CLMEM_ACCESS_AOS(CLMEM(boundaries), Boundary, i, isHeightfield);
 
-		std::cout << "center = " << field.center.x << ", " << field.center.y << ", " << field.center.z << std::endl;
-		std::cout << "i_heights = " << field.i_heights << std::endl;
-		std::cout << "n_heights = " << field.n_heights << std::endl;
-		std::cout << "i_spacings = " << field.i_spacings << std::endl;
-		std::cout << "n_spacings = " << field.n_spacings << std::endl;
+		std::cout << "isHeightfield = " << isHeightfield << std::endl;
 
-		std::cout << "heights = ";
-		for (uint32_t i = field.i_heights; i < field.i_heights+field.n_heights; i++)
-			std::cout << CLMEM_ACCESS_ARRAY(CLMEM(heights), float, i) << ", ";
-		std::cout << std::endl;
+		if (!isHeightfield) {
+			std::cout << "z = " << (float)CLMEM_ACCESS_AOS(CLMEM(boundaries), Boundary, i, z) << std::endl;
+		}
 
-		std::cout << "spacings = ";
-		for (uint32_t i = field.i_spacings; i < field.i_spacings+field.n_spacings; i++)
-			std::cout << CLMEM_ACCESS_ARRAY(CLMEM(spacings), float, i) << ", ";
-		std::cout << std::endl;
+		if (isHeightfield) {
+
+			std::cout << "center = " << field.center.x << ", " << field.center.y << ", " << field.center.z << std::endl;
+			std::cout << "i_heights = " << field.i_heights << std::endl;
+			std::cout << "n_heights = " << field.n_heights << std::endl;
+			std::cout << "i_spacings = " << field.i_spacings << std::endl;
+			std::cout << "n_spacings = " << field.n_spacings << std::endl;
+
+			std::cout << "heights = ";
+			for (uint32_t i = field.i_heights; i < field.i_heights+field.n_heights; i++)
+				std::cout << CLMEM_ACCESS_ARRAY(CLMEM(heights), float, i) << ", ";
+			std::cout << std::endl;
+
+			std::cout << "spacings = ";
+			for (uint32_t i = field.i_spacings; i < field.i_spacings+field.n_spacings; i++)
+				std::cout << CLMEM_ACCESS_ARRAY(CLMEM(spacings), float, i) << ", ";
+			std::cout << std::endl;
+		}
 	}
 }
 
