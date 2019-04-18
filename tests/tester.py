@@ -366,11 +366,11 @@ for i in range(0, len(boundaries)):
 	addToPlotGroup(*runOneTest(1, 10, 0, 2.0, 0.1, b))
 	# Varying d
 	progress(maxsims)
-	plot_groups[10].extend(runOneTest(1, 10, 0, 1.3, 0.01, b))
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.01, b))
 	progress(maxsims)
-	plot_groups[11].extend(runOneTest(1, 10, 0, 1.3, 0.1, b))
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
 	progress(maxsims)
-	plot_groups[12].extend(runOneTest(1, 10, 0, 1.3, 1, b))
+	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 1, b))
 
 
 
