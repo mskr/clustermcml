@@ -28,6 +28,17 @@ args = parser.parse_args()
 
 ########################################################################################
 
+# Helper type for parsing
+# We can parse and plot the following quantities:
+# - A_l: Absorption as function of layer [-] 
+# - A_z: Absorption as function of depth [1/cm] 
+# - Rd_r: Diffuse reflectance as function of radius [1/cm2]
+# - Rd_a: Diffuse reflectance as function of exit angle [1/sr] 
+# - Tt_r: Total transmittance (at last layer) as function of radius [1/cm2] 
+# - Tt_a: Total transmittance as function of exit angle [1/sr] 
+# - A_rz: 2D probability density in turbid media over r & z. [1/cm3]
+# - Rd_ra: 2D distribution of diffuse reflectance. [1/(cm2 sr)]
+# - Tt_ra: 2D distribution of total transmittance. [1/(cm2 sr)]
 Plottable = Enum('Plottable', 'NONE A_l A_z Rd_r Rd_a Tt_r Tt_a A_rz Rd_ra Tt_ra')
 
 ########################################################################################
@@ -308,15 +319,15 @@ for i in range(0, len(args.files)):
 		else:
 
 			folder = mco[0:-4]
-			plotToPDF(folder, ['Rd', 'r'],      Rd_r,  [dr, 1],          ['cm', 'cm-2'])
-			plotToPDF(folder, ['Rd', 'a'],      Rd_a,  [na/90.0, 1],     ['deg', 'cm-2'])
-			plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2'])
-			plotToPDF(folder, ['A', 'l'],       A_l,   [1, 1],           ['layer', 'cm-3'])
-			plotToPDF(folder, ['A', 'z'],       A_z,   [dz, 1],          ['cm', 'cm-3'])
+			plotToPDF(folder, ['Rd', 'r'],      Rd_r,  [dr, 1],          ['cm', 'cm-2']) # read: radius in cm and reflectance in J per square cm
+			plotToPDF(folder, ['Rd', 'a'],      Rd_a,  [na/90.0, 1],     ['deg', 'sr-1']) # reflectance per solid angle
+			plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
+			plotToPDF(folder, ['A', 'l'],       A_l,   [1, 1],           ['layer', '-'])
+			plotToPDF(folder, ['A', 'z'],       A_z,   [dz, 1],          ['cm', 'cm-1'])
 			plotToPDF(folder, ['A', 'r', 'z'],  A_rz,  [dr, dz, 1],      ['cm', 'cm', 'cm-3'])
-			plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2'])
+			plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
 			plotToPDF(folder, ['Tt', 'r'],      Tt_r,  [dr, 1],          ['cm', 'cm-2'])
-			plotToPDF(folder, ['Tt', 'a'],      Tt_a,  [na/90.0, 1],     ['deg', 'cm-2'])
+			plotToPDF(folder, ['Tt', 'a'],      Tt_a,  [na/90.0, 1],     ['deg', 'sr-1'])
 
 
 if args.COMPARE_MODE_ENABLED:
@@ -324,6 +335,6 @@ if args.COMPARE_MODE_ENABLED:
 	mcos = list(map(lambda mco: os.path.split(mco)[1], mcos))
 
 	plotAllToPDF(args.outFolder, ['Rd', 'r'], Rd_r_arrays, [last_dr, 1], ['cm', 'cm-2'], mcos)
-	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0, 1], ['deg', 'cm-2'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0, 1], ['deg', 'sr-1'], mcos)
 	plotAllToPDF(args.outFolder, ['Tt', 'r'], Tt_r_arrays, [dr, 1],      ['cm', 'cm-2'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0, 1], ['deg', 'cm-2'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0, 1], ['deg', 'sr-1'], mcos)
