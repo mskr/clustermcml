@@ -47,27 +47,27 @@ boundary_presets = {
 	},
 	'hihill': {
 		'description': 'An upward curve with high curvature',
-		'data': generateCurve(0.2, 50, 0.01)
+		'data': generateCurve(0.4, 50, 0.01)
 	},
 	'lohill': {
 		'description': 'An upward curve with low curvature',
-		'data': generateCurve(0.1, 50, 0.01)
+		'data': generateCurve(0.2, 50, 0.01)
 	},
 	'hicrater': {
 		'description': 'A downward curve with high curvature',
-		'data': generateCurve(-0.2, 50, 0.01)
+		'data': generateCurve(-0.4, 50, 0.01)
 	},
 	'locrater': {
 		'description': 'A downward curve with low curvature',
-		'data': generateCurve(-0.1, 50, 0.01)
+		'data': generateCurve(-0.2, 50, 0.01)
 	},
 	'hinoise': {
 		'description': 'Noise with high amplitude',
-		'data': generateNoise(0.2, 50, 0.01)
+		'data': generateNoise(0.4, 50, 0.01)
 	},
 	'lonoise': {
 		'description': 'Noise with low amplitude',
-		'data': generateNoise(0.1, 50, 0.01)
+		'data': generateNoise(0.2, 50, 0.01)
 	}
 }
 
