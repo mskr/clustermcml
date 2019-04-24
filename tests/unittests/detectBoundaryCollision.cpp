@@ -41,8 +41,8 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer].heightfield, heights, spacings, normal);
 	} else {
 		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer].z);
-		const float3 normal = (float3)(0.0f, 0.0f, 1.0f);
-		struct Plane3 plane = {middle, normal};
+		*normal = (float3)(0.0f, 0.0f, 1.0f);
+		struct Plane3 plane = {middle, *normal};
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
@@ -55,8 +55,8 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1].heightfield, heights, spacings, normal);
 	} else {
 		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer+1].z);
-		const float3 normal = (float3)(0.0f, 0.0f, -1.0f);
-		struct Plane3 plane = {middle, normal};
+		*normal = (float3)(0.0f, 0.0f, -1.0f);
+		struct Plane3 plane = {middle, *normal};
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
@@ -66,15 +66,27 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 	return 0;
 }
 
-// Sample arrays of all the heightfields
+
+
+
+
+
+
 float heights[10] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
 float spacings[10] = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
 
 Boundary boundaries[2] = {
+	// {
+	// 	1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
+	// 		{0.0f, 0.0f, 0.0f}, // origin at 0
+	// 		0, 5, // first half of the sample arrays
+	// 		0, 5
+	// 	}
+	// },
 	{
-		1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
-			{0.0f, 0.0f, 0.0f}, // origin at 0
-			0, 5, // first half of the sample arrays
+		0, 0.0f, 0, 0, RHeightfield{ // This boundary is implicit
+			{0.0f, 0.0f, 0.0f},
+			0, 5,
 			0, 5
 		}
 	},
@@ -87,17 +99,20 @@ Boundary boundaries[2] = {
 	}
 };
 
+
+
 int main() {
 
 	//TODO no reflectance detected when using implicit boundary => bug in detectBoundaryCollision?
 
 
 	int currentLayer = 0;
-	Line3 line = { {-0.0127144791,-0.00177060463,9.85572115e-07}, {-0.0155298375,-0.00247456646,-0.00107741705} };
+	Line3 line = { {0.0f, 0.0f, 0.05f}, {0.0f, 0.0f, -0.05f} };
 	float3 normal;
 	float pathLenToIntersection;
 
 	int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &normal, &pathLenToIntersection);
+
 	printf("layerChange=%d normal=(%f,%f,%f) pathLenToIntersection=%f\n", layerChange, normal.x, normal.y, normal.z, pathLenToIntersection);
 
 	if (layerChange == -1) {

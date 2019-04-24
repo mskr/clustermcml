@@ -133,8 +133,8 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer].heightfield, heights, spacings, normal);
 	} else {
 		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer].z);
-		const float3 normal = (float3)(0.0f, 0.0f, 1.0f);
-		struct Plane3 plane = {middle, normal};
+		*normal = (float3)(0.0f, 0.0f, 1.0f);
+		struct Plane3 plane = {middle, *normal};
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
@@ -147,8 +147,8 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1].heightfield, heights, spacings, normal);
 	} else {
 		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer+1].z);
-		const float3 normal = (float3)(0.0f, 0.0f, -1.0f);
-		struct Plane3 plane = {middle, normal};
+		*normal = (float3)(0.0f, 0.0f, -1.0f);
+		struct Plane3 plane = {middle, *normal};
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
