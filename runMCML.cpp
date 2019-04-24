@@ -70,7 +70,7 @@ const ParallelizationStrategy CURRENT_PAR = ParallelizationStrategy::COORDINATOR
 static int simCount = 0;
 static SimulationStruct* simulations = 0;
 
-// Per-simulation buffers
+// Per-simulation buffers (for GPU access)
 static cl_mem* layersPerSimulation = 0;
 static cl_mem* boundariesPerSimulation = 0;
 static cl_mem* heightsPerSimulation = 0;
@@ -111,13 +111,85 @@ static PhotonTracker createNewPhotonTracker() {
 }
 
 
+
+
+
+// ==========================================================================================
+
+static float lerp(float v0, float v1, float a) {
+	return v0 + (v1 - v0) * a;
+}
+
+
+static float getHeightAt(uint32_t n, float* heights, float* spacings, float pos) {
+	assert(pos >= 0.0f);
+	uint32_t i = 0;
+	float r = 0.0f, r_last = 0.0f;
+	while (r < pos) {
+		r_last = r;
+		r += spacings[i < n ? i : n-1];
+		i++;
+		if (i >= n) return heights[n-1];
+	}
+	float h0 = heights[i-1 < n ? (i-1 > 0 ? i-1 : 0) : n-1];
+	float h1 = heights[i < n ? i : n-1];
+	return lerp(h0, h1, r - r_last);
+}
+
+
 /**
 * Check if explicitly defined heightfield boundaries overlap.
 * If so, the boundaries are invalid and the program is terminated.
 */
-static void checkBoundaries(BoundaryStruct* boundaries, int n) {
-	//TODO
+static bool checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, float* spacings) {
+
+	// Check if all heights and spacings >= 0.0f
+	for (uint32_t i = 0; i < n; i++) {
+		if (!boundaries[i].isHeightfield) continue;
+		for (uint32_t j = 0; j < boundaries[i].heightfield.n_heights; j++) {
+			if (!(heights[boundaries[i].heightfield.i_heights + j] >= 0.0f)) return false;
+			if (!(spacings[boundaries[i].heightfield.i_spacings + j] >= 0.0f)) return false;
+		}
+	}
+
+	// Check if boundaries do not overlap
+	for (uint32_t i = 0; i < n; i++) {
+		if (!boundaries[i].isHeightfield) continue;
+
+		for (uint32_t j = 0; j < n; j++) {
+			if (i == j) continue;
+
+			float r = 0.0f;
+
+			for (uint32_t k = 0; k < boundaries[i].heightfield.n_heights; k++) {
+
+				const float h_i = heights[boundaries[i].heightfield.i_heights + k];
+				const float z_i = boundaries[i].heightfield.center.z - h_i;
+
+				float z_j;
+				if (boundaries[j].isHeightfield) {
+					const float h_j = getHeightAt(boundaries[j].heightfield.n_heights,
+						heights + boundaries[j].heightfield.i_heights,
+						spacings + boundaries[j].heightfield.i_spacings, r);
+					z_j = boundaries[j].heightfield.center.z - h_j;
+				} else {
+					z_j = boundaries[j].z;
+				}
+
+				if (i < j) { if (!(z_i < z_j)) return false; }
+				else       { if (!(z_i > z_j)) return false; }
+
+				r += spacings[boundaries[i].heightfield.i_spacings + k];
+			}
+		}
+	}
 }
+
+
+
+// ==========================================================================================
+
+
 
 
 /**
@@ -129,10 +201,6 @@ static void readMCIFile(char* name, bool ignoreA, int* outSimCount) {
 
 	assert(*outSimCount > 0);
 }
-
-
-//TODO write automatic parameter-combination- and test-script
-//     (also need a way to visualize curves to detect noise, which means that photon count must be increased)
 
 
 /**
@@ -1011,9 +1079,6 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 	if (rank == 0) readMCIFile(mcmlOptions, ignoreA, &simCount);
 
 	ignoreHeightfields = strstr(kernelOptions, "-D IGNORE_HEIGHTFIELDS") != NULL;
-	if (!ignoreHeightfields)
-		for (int i = 0; i < simCount; i++)
-			checkBoundaries(simulations[i].boundaries, simulations[i].n_layers + 1);
 
 	#ifndef NO_GPU
 	{
@@ -1050,6 +1115,17 @@ void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* 
 		allocOutputArrays(simulations[simIndex], simIndex);
 		// layer and boundary mem
 		setupInputArrays(simulations[simIndex], simIndex);
+
+		if (!ignoreHeightfields) {
+			if (!checkBoundaries(simulations[simIndex].n_layers+1, 
+				(Boundary*)CLMEM(boundariesPerSimulation[simIndex]), 
+				(float*)CLMEM(heightsPerSimulation[simIndex]), 
+				(float*)CLMEM(spacingsPerSimulation[simIndex]))) {
+
+				out << "Error: invalid boundaries\n";
+				exit(1);
+			}
+		}
 	}
 
 	// Debug buffer

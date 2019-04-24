@@ -183,14 +183,14 @@ static float getHeightAt(uint32_t n, float* heights, float* spacings, float pos)
 * Check if explicitly defined heightfield boundaries overlap.
 * If so, the boundaries are invalid and the program is terminated.
 */
-static void checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, float* spacings) {
+static bool checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, float* spacings) {
 
 	// Check if all heights and spacings >= 0.0f
 	for (uint32_t i = 0; i < n; i++) {
 		if (!boundaries[i].isHeightfield) continue;
 		for (uint32_t j = 0; j < boundaries[i].heightfield.n_heights; j++) {
-			assert(heights[boundaries[i].heightfield.i_heights + j] >= 0.0f);
-			assert(spacings[boundaries[i].heightfield.i_spacings + j] >= 0.0f);
+			if (!(heights[boundaries[i].heightfield.i_heights + j] >= 0.0f)) return false;
+			if (!(spacings[boundaries[i].heightfield.i_spacings + j] >= 0.0f)) return false;
 		}
 	}
 
@@ -198,7 +198,7 @@ static void checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, fl
 	for (uint32_t i = 0; i < n; i++) {
 		if (!boundaries[i].isHeightfield) continue;
 
-		for (uint32_t j = 0; j < n; i++) {
+		for (uint32_t j = 0; j < n; j++) {
 			if (i == j) continue;
 
 			float r = 0.0f;
@@ -218,8 +218,8 @@ static void checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, fl
 					z_j = boundaries[j].z;
 				}
 
-				if (i < j) assert(z_i < z_j);
-				else       assert(z_i > z_j);
+				if (i < j) { if (!(z_i < z_j)) return false; }
+				else       { if (!(z_i > z_j)) return false; }
 
 				r += spacings[boundaries[i].heightfield.i_spacings + k];
 			}
@@ -250,11 +250,16 @@ int main(int nargs, char** args) {
 
 		dumpHeightfieldData(simulations[i].n_layers+1, boundariesPerSimulation[i], heightsPerSimulation[i], spacingsPerSimulation[i]);
 
-		checkBoundaries(simulations[i].n_layers+1, 
+		if (!checkBoundaries(simulations[i].n_layers+1, 
 			(Boundary*)CLMEM(boundariesPerSimulation[i]), 
 			(float*)CLMEM(heightsPerSimulation[i]), 
-			(float*)CLMEM(spacingsPerSimulation[i]));
+			(float*)CLMEM(spacingsPerSimulation[i]))) {
+
+			printf("TEST FAILED\n");
+			return 1;
+		}
 	}
 
+	printf("TEST PASSED\n");
 	return 0;
 }
