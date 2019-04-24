@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdint.h>
 
 #include "Layer.h" // struct Layer
 // typedef struct { float x,y,z; } float3; // remove when transpiling

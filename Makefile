@@ -145,10 +145,13 @@ singlemcml-runMCML-windows.o: runMCML.cpp CUDAMCMLio.c randomlib.h Boundary.h La
 		/I$(MSVC_INCLUDE_UCRT) \
 		/c /Fo"singlemcml-runMCML-windows.o"
 
-# Kernel
-# 4. Now we can compile the kernel as C++
+# Transpiling kernel is a little complicated:
+
+# 5. Now we can compile the kernel as C++
 singlemcml-kernel-windows.o: singlemcml-kernel-windows.preprocessed.cpp
 	$(MSVC)/cl singlemcml-kernel-windows.preprocessed.cpp /c /Zi /W3 /Fo"singlemcml-kernel-windows.o"
+
+# 4. Preprocess again to resolve transpiler stuff (GLM etc.)
 singlemcml-kernel-windows.preprocessed.cpp: mcmlKernel.preprocessed.c.transpiled.cpp
 	$(MSVC)/cl mcmlKernel.preprocessed.c.transpiled.cpp /c /Zi /W3 \
 		/I$(MSVC_INCLUDE) \
@@ -160,8 +163,9 @@ mcmlKernel.preprocessed.c.transpiled.cpp: mcmlKernel.preprocessed.c cl2cpp.exe
 	cl2cpp mcmlKernel.preprocessed.c -v
 
 # 2. Preprocess kernel file to resolve includes
+# (using /TP flag to treat every file as C++ to avoid problems with _Bool/__vcrt_bool)
 mcmlKernel.preprocessed.c: mcmlKernel.c Boundary.h Layer.h PhotonTracker.h randomlib.h geometrylib.c clmem.h classert.h
-	$(MSVC)/cl mcmlKernel.c /c \
+	$(MSVC)/cl mcmlKernel.c /c /TP \
 		/D"NO_GPU" \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \

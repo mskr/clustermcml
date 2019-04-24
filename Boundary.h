@@ -1,5 +1,5 @@
 #ifdef NO_GPU
-#include <stdint.h>
+// #include <stdint.h> // assumed to be included (reinclude breaks second preprocessing step of singlemcml build)
 typedef uint32_t uint;
 #define __global
 #elif !defined(__OPENCL_VERSION__)
