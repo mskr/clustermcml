@@ -1,4 +1,5 @@
 #ifdef NO_GPU
+#include <stdint.h>
 typedef uint32_t uint;
 #define __global
 #elif !defined(__OPENCL_VERSION__)

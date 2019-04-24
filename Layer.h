@@ -1,3 +1,5 @@
+#include "clmem.h"
+
 ALIGN_4BYTE(
 struct Layer {
 	float absorbCoeff;

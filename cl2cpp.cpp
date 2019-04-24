@@ -49,20 +49,20 @@ void prependDefinitions(std::string& src) {
 		#define __global                                     \n\
 		#define uint uint32_t                                \n\
 		#define ulong uint64_t                               \n\
-		size_t get_global_id(uint dimindx) {                 \n\
+		static size_t get_global_id(uint dimindx) {          \n\
 			return 0;                                        \n\
 		}                                                    \n\
-		size_t get_global_size (uint dimindx) {              \n\
+		static size_t get_global_size (uint dimindx) {       \n\
 			return 1;                                        \n\
 		}                                                    \n\
-		unsigned int atomic_add(                             \n\
+		static unsigned int atomic_add(                      \n\
 		volatile __global unsigned int *p ,                  \n\
 		unsigned int val) {                                  \n\
 			unsigned int old = *p;                           \n\
 			*p += val;                                       \n\
 			return old;                                      \n\
 		}                                                    \n\
-		float fract(float x, float* outFloor) {              \n\
+		static float fract(float x, float* outFloor) {       \n\
 			*outFloor = floor(x);                            \n\
 			return x - (*outFloor);                          \n\
 		}                                                    \n\
@@ -214,10 +214,12 @@ void replaceVectorTypes(std::string& src) {
 			}
 
 			if (commaCount >= 1) { // Found vector initialization
-				//TODO this will probably also detect if(int i = 0, j = 0;;) as vec2. Prevent this!
-
-				// Detect the cast like operator that appears before CL vector initializations
-				// and extract vector size number as char
+				// This also detected this line in a preprocessed file:
+				// ((void)(__vcrt_assert_va_start_is_not_reference<decltype(_Locale)>(), ((void)(_ArgList = (va_list)(&const_cast<char&>(reinterpret_cast<const volatile char&>(_Locale))) + ((sizeof(_Locale) + sizeof(int) - 1) & ~(sizeof(int) - 1))))));
+				// and will probably also detect if(int i = 0, j = 0;;) as vec2.
+				// Therefore:
+				// Detect the cast like operator that appears before CL vector initializations.
+				// Extract vector size number as char.
 				char vecN = 0;
 				if (lastNonWhitespaceIndex >= clVec.length()) {
 					if ((src.substr(lastNonWhitespaceIndex - clVec.length() + 1, clVec.length()-2) == clVec.substr(0, clVec.length() - 2)
@@ -232,19 +234,20 @@ void replaceVectorTypes(std::string& src) {
 				// (if cast like operator not found use comma count to determine vector size)
 				if (verbose) std::cout << "Line " << lineCount << ": Found vec" << vecN ? vecN : (commaCount+1);
 				if (verbose) std::cout << " ..." << a << src.substr(i,j-i) << c << "..." << std::endl;
-				if (commaCount == 1 || commaCount == 2 || commaCount == 3) {
+				if ((commaCount == 1 || commaCount == 2 || commaCount == 3) && vecN) {
 
 					// Insert constructor call before opening paranthesis (position i)
-					const std::string r = VEC + (vecN ? vecN : (char)(48+commaCount+1));
+					const std::string r = VEC + (vecN);
 					src.insert(i, r);
 
 					// Continue at closing paranthesis (position j + length of inserted text)
 					i = j + r.length() - 1;
 				} else {
 
-					std::cerr << "Transpiler cannot replace vector of size " << (commaCount+1) << "." << std::endl;
-					std::cerr << "Detected here: " << " ..." << a << src.substr(i,j-i) << c << "..." << std::endl;
-					exit(1);
+					if (very_verbose) {
+						std::cerr << "Warning: Transpiler cannot replace vector of size " << (commaCount+1) << ", or this was a misdetection based on comma count." << std::endl;
+						std::cerr << "Detected here: " << " ..." << a << src.substr(i,j-i) << c << "..." << std::endl;
+					}
 				}
 			}
 		}

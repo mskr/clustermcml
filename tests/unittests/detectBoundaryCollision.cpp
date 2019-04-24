@@ -1,45 +1,104 @@
-#define BOUNDARY_SAMPLES 50
-
-#include "geometrylib.c.cpp"
-#define Real float
-#define Real3 vec3
 #include <stdio.h>
+
+#include "Layer.h" // struct Layer
+// typedef struct { float x,y,z; } float3; // remove when transpiling
+#include "Boundary.h" // struct Boundary
+
+#define __global
+#define BoundaryArray __global struct Boundary*
 
 /**
 * Return index difference from current to adjacent layer in case
 * there is an intersection with the boundary in the photon step.
 * Also outputs collision normal and path length to intersection.
 */
-int detectBoundaryCollision(int currentLayer, Line3 line, RHeightfield* boundaries, float3* normal, float* pathLenToIntersection) {
+// int detectBoundaryCollision_old(int currentLayer, Line3 line, RHeightfield* boundaries, float3* normal, float* pathLenToIntersection) {
+// 	// Find intersection with top boundary
+// 	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer], normal);
+// 	if (*pathLenToIntersection >= 0) {
+// 		return -1;
+// 	}
+// 	// Find intersection with bottom boundary
+// 	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1], normal);
+// 	if (*pathLenToIntersection >= 0) {
+// 		return 1;
+// 	}
+// 	return 0;
+// }
+
+/**
+* Return index difference from current to adjacent layer in case
+* there is an intersection with the boundary in the photon step.
+* Also outputs collision normal and path length to intersection.
+*/
+int detectBoundaryCollision(int currentLayer, struct Line3 line,
+	BoundaryArray boundaries, __global float* heights, __global float* spacings,
+	float3* normal, float* pathLenToIntersection) {
+
 	// Find intersection with top boundary
-	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer], normal);
+	if (boundaries[currentLayer].isHeightfield) {
+		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer].heightfield, heights, spacings, normal);
+	} else {
+		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer].z);
+		const float3 normal = (float3)(0.0f, 0.0f, 1.0f);
+		struct Plane3 plane = {middle, normal};
+		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
+	}
+
 	if (*pathLenToIntersection >= 0) {
 		return -1;
 	}
+
 	// Find intersection with bottom boundary
-	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1], normal);
+	if (boundaries[currentLayer+1].isHeightfield) {
+		*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1].heightfield, heights, spacings, normal);
+	} else {
+		const float3 middle = (float3)(0.0f, 0.0f, boundaries[currentLayer+1].z);
+		const float3 normal = (float3)(0.0f, 0.0f, -1.0f);
+		struct Plane3 plane = {middle, normal};
+		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
+	}
+
 	if (*pathLenToIntersection >= 0) {
 		return 1;
 	}
 	return 0;
 }
 
+// Sample arrays of all the heightfields
+float heights[10] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+float spacings[10] = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
 
-RHeightfield boundaries[1] = {
+Boundary boundaries[2] = {
 	{
-		{0.0f,0.0f,0.0f},
-		{0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f},
-		{0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f,0.1f}
+		1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
+			{0.0f, 0.0f, 0.0f}, // origin at 0
+			0, 5, // first half of the sample arrays
+			0, 5
+		}
+	},
+	{
+		1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
+			{0.0f, 0.0f, 0.1f}, // origin at z=0.1
+			5, 5, // second half of the sample arrays
+			5, 5
+		}
 	}
 };
 
 int main() {
+
+	//TODO no reflectance detected when using implicit boundary => bug in detectBoundaryCollision?
+
+
 	int currentLayer = 0;
 	Line3 line = { {-0.0127144791,-0.00177060463,9.85572115e-07}, {-0.0155298375,-0.00247456646,-0.00107741705} };
-	Real3 normal;
-	Real pathLenToIntersection;
-	int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, &normal, &pathLenToIntersection);
+	float3 normal;
+	float pathLenToIntersection;
+
+	int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &normal, &pathLenToIntersection);
 	printf("layerChange=%d normal=(%f,%f,%f) pathLenToIntersection=%f\n", layerChange, normal.x, normal.y, normal.z, pathLenToIntersection);
+
 	if (layerChange == -1) {
 		printf("TEST PASSED\n");
 		return 0;
@@ -47,7 +106,4 @@ int main() {
 		printf("TEST FAILED\n");
 		return 1;
 	}
-
-	//TODO Test fails => debug this
-	// same as finishedPhotonCount = 17593, iteration = 1
 }

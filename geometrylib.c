@@ -72,7 +72,7 @@ Real3 projectPointToPlane(struct Plane3 plane, Real3 point) {
 Real3 rotatePointAroundVector(float angle, Real3 vector, Real3 point) {
     float cs = cos(angle), ics = 1.0 - cs, sn = sin(angle);
     Real3 u = normalize(vector);
-    return (Real3)(
+    return (Real3)( // this is OpenCL C syntax
         point.x * (cs+u.x*u.x*ics) + point.y * (u.x*u.y*ics-u.z*sn) + point.z * (u.x*u.z*ics+u.y*sn),
         point.x * (u.y*u.x*ics+u.z*sn) + point.y * (cs+u.y*u.y*ics) + point.z * (u.y*u.z*ics-u.x*sn),
         point.x * (u.z*u.x*ics-u.y*sn) + point.y * (u.z*u.y*ics+u.x*sn) + point.z * (cs+u.z*u.z*ics));

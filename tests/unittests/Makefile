@@ -71,21 +71,84 @@ readMCIFile.o: readMCIFile.cpp ../../CUDAMCMLio.h ../../CUDAMCMLio.c
 
 #####################################################################
 
+# Link
 detectBoundaryCollision.exe: detectBoundaryCollision.o
-	$(MSVC)/link detectBoundaryCollision.o /DEBUG \
+	$(MSVC)/link detectBoundaryCollision.o singlemcml-geometrylib-windows.o /DEBUG \
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
 		/OUT:"detectBoundaryCollisions.exe"
 
-detectBoundaryCollision.o: detectBoundaryCollision.cpp geometrylib.c.cpp
-	$(MSVC)/cl detectBoundaryCollision.cpp /c /Zi /W3 \
+# Compile
+detectBoundaryCollision.o: detectBoundaryCollision.cpp.transpiled.cpp.preprocessed.cpp singlemcml-geometrylib-windows.o ../../clcheck.h ../../clmem.h ../../geometrylib.h ../../Layer.h ../../Boundary.h
+	$(MSVC)/cl detectBoundaryCollision.cpp.transpiled.cpp.preprocessed.cpp /c /Zi /W3 \
 		/I$(MSVC_INCLUDE) \
 		/I$(MSVC_INCLUDE_UCRT) \
 		/I"../.." \
-		/I.. \
 		/D"NO_GPU" \
 		/c /Fo"detectBoundaryCollision.o"
+
+# Preprocess transpiler stuff (GLM etc.)
+detectBoundaryCollision.cpp.transpiled.cpp.preprocessed.cpp: detectBoundaryCollision.cpp.transpiled.cpp
+	$(MSVC)/cl detectBoundaryCollision.cpp.transpiled.cpp /c /P \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I"../.." \
+		/D"NO_GPU" \
+		/P /Fi"detectBoundaryCollision.cpp.transpiled.cpp.preprocessed.cpp"
+
+
+# Transpile
+detectBoundaryCollision.cpp.transpiled.cpp: detectBoundaryCollision.cpp cl2cpp.exe
+	cl2cpp detectBoundaryCollision.cpp -v
+
+# Preprocess
+# detectBoundaryCollision.preprocessed.cpp: detectBoundaryCollision.cpp
+# 	$(MSVC)/cl detectBoundaryCollision.cpp /c /P \
+# 		/I$(MSVC_INCLUDE) \
+# 		/I$(MSVC_INCLUDE_UCRT) \
+# 		/I"../.." \
+# 		/D"NO_GPU" \
+# 		/P /Fi"detectBoundaryCollision.preprocessed.cpp"
+		
+
+# 5. Now we can compile the kernel as C++
+singlemcml-geometrylib-windows.o: singlemcml-geometrylib-windows.preprocessed.cpp
+	$(MSVC)/cl singlemcml-geometrylib-windows.preprocessed.cpp /c /Zi /W3 /Fo"singlemcml-geometrylib-windows.o"
+
+# 4. Another preprocessing step
+singlemcml-geometrylib-windows.preprocessed.cpp: geometrylib.preprocessed.c.transpiled.cpp
+	$(MSVC)/cl geometrylib.preprocessed.c.transpiled.cpp /c /Zi /W3 \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/I"../.." \
+		/P /Fi"singlemcml-geometrylib-windows.preprocessed.cpp"
+
+# 3. Transpile the preprocessed cl code to cpp
+geometrylib.preprocessed.c.transpiled.cpp: geometrylib.preprocessed.c cl2cpp.exe
+	cl2cpp geometrylib.preprocessed.c -v
+
+# 2. Preprocess file to resolve includes
+geometrylib.preprocessed.c: ../../geometrylib.c ../../geometrylib.h
+	$(MSVC)/cl "../../geometrylib.c" /c \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/D"NO_GPU" \
+		/P /Fi"geometrylib.preprocessed.c"
+
+# 1. Make transpiler if not present
+cl2cpp.exe: cl2cpp.o
+	$(MSVC)/link cl2cpp.o /DEBUG \
+		/LIBPATH:$(MSVC_LIB) \
+		/LIBPATH:$(MSVC_LIB_UCRT) \
+		/LIBPATH:$(MSVC_LIB_UM) \
+		/OUT:"cl2cpp.exe"
+
+cl2cpp.o: ../../cl2cpp.cpp
+	$(MSVC)/cl "../../cl2cpp.cpp" /c /Zi /W3 \
+		/I$(MSVC_INCLUDE) \
+		/I$(MSVC_INCLUDE_UCRT) \
+		/c /Fo"cl2cpp.o"
 
 
 #####################################################################
@@ -100,8 +163,6 @@ clmem.preprocessed.cpp: ../../clmem.cpp
 		/I$(MSVC_INCLUDE_UCRT) \
 		/D"NO_GPU" \
 		/P /Fi"clmem.preprocessed.cpp"
-		
-#TODO geometrylib.c.cpp must be created with cl2cpp.exe from geometrylib.c
 
 clean:
-	del *.exe *.o *.preprocessed.c* *.bin.* *.pdb *.ilk
+	del *.exe *.o *.preprocessed.c* *.bin.* *.pdb *.ilk *.transpiled.cpp
