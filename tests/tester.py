@@ -335,7 +335,7 @@ def addToPlotGroup(name, mcos):
 
 
 # Test only few but relevant combinations
-maxsims = 13 * len(explicit_boundaries)
+maxsims = 10 * len(explicit_boundaries)
 boundaries = copy.deepcopy(explicit_boundaries)
 for i in range(0, len(boundaries)):
 	# Test boundaries one by one instead of all in single simulation
@@ -352,14 +352,10 @@ for i in range(0, len(boundaries)):
 	progress(maxsims)
 	addToPlotGroup(*runOneTest(1, 10, -0.5, 1.3, 0.1, b))
 	progress(maxsims)
-	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
-	progress(maxsims)
 	addToPlotGroup(*runOneTest(1, 10, 0.5, 1.3, 0.1, b))
 	# Varying n
 	progress(maxsims)
 	addToPlotGroup(*runOneTest(1, 10, 0, 1.1, 0.1, b))
-	progress(maxsims)
-	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
 	progress(maxsims)
 	addToPlotGroup(*runOneTest(1, 10, 0, 1.5, 0.1, b))
 	progress(maxsims)
@@ -367,8 +363,6 @@ for i in range(0, len(boundaries)):
 	# Varying d
 	progress(maxsims)
 	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.01, b))
-	progress(maxsims)
-	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 0.1, b))
 	progress(maxsims)
 	addToPlotGroup(*runOneTest(1, 10, 0, 1.3, 1, b))
 
