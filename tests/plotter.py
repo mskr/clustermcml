@@ -263,6 +263,16 @@ def checkOutData(Rd_r, Rd_a, Rd_ra, A_l, A_z, A_rz, Tt_r, Tt_a, Tt_ra, nr, nz, n
 
 ########################################################################################
 
+# Multiplies distance in x with values in array (in-place)
+def multiplyXOntoY(array, step):
+	d = 0
+	for i in range(0, len(array)):
+		array[i] *= d
+		d += step
+	return array
+
+########################################################################################
+
 mcos = []
 
 Rd_r_arrays = []
@@ -319,22 +329,22 @@ for i in range(0, len(args.files)):
 		else:
 
 			folder = mco[0:-4]
-			plotToPDF(folder, ['Rd', 'r'],      Rd_r,  [dr, 1],          ['cm', 'cm-2']) # read: radius in cm and reflectance in J per square cm
-			plotToPDF(folder, ['Rd', 'a'],      Rd_a,  [na/90.0, 1],     ['deg', 'sr-1']) # reflectance per solid angle
-			plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
-			plotToPDF(folder, ['A', 'l'],       A_l,   [1, 1],           ['layer', '-'])
-			plotToPDF(folder, ['A', 'z'],       A_z,   [dz, 1],          ['cm', 'cm-1'])
-			plotToPDF(folder, ['A', 'r', 'z'],  A_rz,  [dr, dz, 1],      ['cm', 'cm', 'cm-3'])
-			plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra, [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
-			plotToPDF(folder, ['Tt', 'r'],      Tt_r,  [dr, 1],          ['cm', 'cm-2'])
-			plotToPDF(folder, ['Tt', 'a'],      Tt_a,  [na/90.0, 1],     ['deg', 'sr-1'])
+			plotToPDF(folder, ['Rd', 'r'],      multiplyXOntoY(Rd_r, dr), [dr, 1],          ['cm', 'cm-2 * r']) # read: radius in cm and reflectance in J per square cm multiplied with r
+			plotToPDF(folder, ['Rd', 'a'],      Rd_a,                     [na/90.0, 1],     ['deg', 'sr-1']) # reflectance per solid angle
+			plotToPDF(folder, ['Rd', 'r', 'a'], Rd_ra,                    [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
+			plotToPDF(folder, ['A', 'l'],       A_l,                      [1, 1],           ['layer', '-'])
+			plotToPDF(folder, ['A', 'z'],       A_z,                      [dz, 1],          ['cm', 'cm-1'])
+			plotToPDF(folder, ['A', 'r', 'z'],  A_rz,                     [dr, dz, 1],      ['cm', 'cm', 'cm-3'])
+			plotToPDF(folder, ['Tt', 'r', 'a'], Tt_ra,                    [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
+			plotToPDF(folder, ['Tt', 'r'],      multiplyXOntoY(Tt_r, dr), [dr, 1],          ['cm', 'cm-2 * r'])
+			plotToPDF(folder, ['Tt', 'a'],      Tt_a,                     [na/90.0, 1],     ['deg', 'sr-1'])
 
 
 if args.COMPARE_MODE_ENABLED:
 
 	mcos = list(map(lambda mco: os.path.split(mco)[1], mcos))
 
-	plotAllToPDF(args.outFolder, ['Rd', 'r'], Rd_r_arrays, [last_dr, 1], ['cm', 'cm-2'], mcos)
-	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays, [na/90.0, 1], ['deg', 'sr-1'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'r'], Tt_r_arrays, [dr, 1],      ['cm', 'cm-2'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays, [na/90.0, 1], ['deg', 'sr-1'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd', 'r'], map(lambda array: multiplyXOntoY(array, last_dr), Rd_r_arrays), [last_dr, 1],      ['cm', 'cm-2 * r'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd', 'a'], Rd_a_arrays,                                                    [last_na/90.0, 1], ['deg', 'sr-1'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'r'], map(lambda array: multiplyXOntoY(array, last_dr), Tt_r_arrays), [last_dr, 1],      ['cm', 'cm-2 * r'], mcos)
+	plotAllToPDF(args.outFolder, ['Tt', 'a'], Tt_a_arrays,                                                    [last_na/90.0, 1], ['deg', 'sr-1'], mcos)
