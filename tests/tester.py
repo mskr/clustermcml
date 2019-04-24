@@ -200,8 +200,12 @@ def makeMCIFile(mci, mco, mua_i, mus_i, g_i, n_i, dl_i, use_explicit_boundaries)
 		f.write('1.0') # n below
 
 
+
+
+# Lists to hold all produced mco file names
 successful_mcos = []
 failed_mcos = []
+skipped_mcos = []
 
 def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, name_postfix=''):
 
@@ -230,6 +234,7 @@ def runOneTest(mua_i, mus_i, g_i, n_i, dl_i, name_postfix=''):
 			print('==============================================================')
 			print('[SKIP] existing ' + str(mco))
 			mcos.append(mco) # need this later for plotting
+			skipped_mcos.append(mco)
 			continue
 
 		mci = os.path.join(tempfile.mkdtemp(), 'test.mci')
@@ -300,8 +305,7 @@ def progress(maxsims):
 	print('==============================================================')
 	print('[STARTING] Simulation ' + str(simcount) + ' of ' + str(maxsims) +
 		', t = ' + str(datetime.datetime.now()) +
-		'\nsuccessful: ' + str(len(successful_mcos)) +
-		'\nfailed:     ' + str(len(failed_mcos)) )
+		'\n' + str(len(failed_mcos)) + ' failed, ' + str(len(skipped_mcos)) + ' skipped as existing.' )
 
 
 # Plot array of mcos
@@ -375,6 +379,8 @@ for name in plot_groups:
 
 
 
-print('[FINISHED] ' + str(len(successful_mcos)) + ' mco files successfully produced.')
+print('[FINISHED]')
+print(str(len(successful_mcos) - len(skipped_mcos)) + ' mco files successfully produced, ')
+print(str(len(skipped_mcos)) + ' skipped as existing, ')
 print(str(len(failed_mcos)) + ' simulations failed' + (':' if len(failed_mcos) > 0 else '.'))
 for mco in failed_mcos: print(mco)
