@@ -72,54 +72,103 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 
 
 
-float heights[10] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
-float spacings[10] = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
-
-Boundary boundaries[2] = {
-	// {
-	// 	1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
-	// 		{0.0f, 0.0f, 0.0f}, // origin at 0
-	// 		0, 5, // first half of the sample arrays
-	// 		0, 5
-	// 	}
-	// },
-	{
-		0, 0.0f, 0, 0, RHeightfield{ // This boundary is implicit
-			{0.0f, 0.0f, 0.0f},
-			0, 5,
-			0, 5
-		}
-	},
-	{
-		1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
-			{0.0f, 0.0f, 0.1f}, // origin at z=0.1
-			5, 5, // second half of the sample arrays
-			5, 5
-		}
-	}
+struct Result {
+	float3 normal;
+	float pathLenToIntersection;
+	int layerChange;
 };
+
+
+Result test(int currentLayer, Line3 line, Boundary* boundaries, float* heights, float* spacings) {
+
+	printf("line={ start=(%f,%f,%f) end=(%f,%f,%f) }\n", line.start[0], line.start[1], line.start[2], line.end[0], line.end[1], line.end[2]);
+	printf("topBoundary=   { isHeightfield=%d", boundaries[currentLayer].isHeightfield);
+	if (!boundaries[currentLayer].isHeightfield) printf(", z=%f", boundaries[currentLayer].z);
+	else {
+		printf(", origin=(%f,%f,%f)", boundaries[currentLayer].heightfield.center[0], boundaries[currentLayer].heightfield.center[1], boundaries[currentLayer].heightfield.center[2]);
+		printf(", heights="); for(unsigned int i = boundaries[currentLayer].heightfield.i_heights; i < boundaries[currentLayer].heightfield.i_heights+boundaries[currentLayer].heightfield.n_heights; i++) printf("%f ", heights[i]);
+	}
+	printf("\n");
+	printf("bottomBoundary={ isHeightfield=%d", boundaries[currentLayer+1].isHeightfield);
+	if (!boundaries[currentLayer+1].isHeightfield) printf(", z=%f }", boundaries[currentLayer+1].z);
+	else {
+		printf(", origin=(%f,%f,%f)", boundaries[currentLayer+1].heightfield.center[0], boundaries[currentLayer+1].heightfield.center[1], boundaries[currentLayer+1].heightfield.center[2]);
+		printf(", heights="); for(unsigned int i = boundaries[currentLayer+1].heightfield.i_heights; i < boundaries[currentLayer+1].heightfield.i_heights+boundaries[currentLayer+1].heightfield.n_heights; i++) printf("%f ", heights[i]);
+	}
+	printf("\n");
+
+	Result result;
+	result.layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &result.normal, &result.pathLenToIntersection);
+
+	printf("layerChange=%d normal=(%f,%f,%f) pathLenToIntersection=%f\n", result.layerChange, result.normal.x, result.normal.y, result.normal.z, result.pathLenToIntersection);
+
+	return result;
+}
 
 
 
 int main() {
 
-	//TODO no reflectance detected when using implicit boundary => bug in detectBoundaryCollision?
-
-
 	int currentLayer = 0;
-	Line3 line = { {0.0f, 0.0f, 0.05f}, {0.0f, 0.0f, -0.05f} };
-	float3 normal;
-	float pathLenToIntersection;
+	Line3 line = { {0.0f, 0.0f, 0.05f}, {100.0f, 100.0f, -0.05f} };
 
-	int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &normal, &pathLenToIntersection);
+	float heights[10] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
+	float spacings[10] = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
 
-	printf("layerChange=%d normal=(%f,%f,%f) pathLenToIntersection=%f\n", layerChange, normal.x, normal.y, normal.z, pathLenToIntersection);
+	Boundary boundaries1[2] = {
+		{
+			1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
+				{0.0f, 0.0f, 0.0f}, // origin at 0
+				0, 5, // first half of the sample arrays
+				0, 5
+			}
+		},
+		{
+			1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
+				{0.0f, 0.0f, 0.1f}, // origin at z=0.1
+				5, 5, // second half of the sample arrays
+				5, 5
+			}
+		}
+	};
 
-	if (layerChange == -1) {
-		printf("TEST PASSED\n");
-		return 0;
+	Result result1 = test(currentLayer, line, boundaries1, heights, spacings);
+
+
+	if (result1.layerChange == -1) {
+		printf("TEST 1 PASSED\n");
 	} else {
-		printf("TEST FAILED\n");
+		printf("TEST 1 FAILED\n");
 		return 1;
 	}
+
+
+	Boundary boundaries2[2] = {
+		{
+			0, 0.0f, 0, 0, RHeightfield{ // This boundary is implicit
+				{0.0f, 0.0f, 0.0f},
+				0, 5,
+				0, 5
+			}
+		},
+		{
+			1, 0, 0, 0, RHeightfield{ // This boundary is a heightfield
+				{0.0f, 0.0f, 0.1f}, // origin at z=0.1
+				5, 5, // second half of the sample arrays
+				5, 5
+			}
+		}
+	};
+
+	Result result2 = test(currentLayer, line, boundaries2, heights, spacings);
+
+
+	if (result2.layerChange == -1) {
+		printf("TEST 2 PASSED\n");
+	} else {
+		printf("TEST 2 FAILED\n");
+		return 1;
+	}
+
+	return 0;
 }
