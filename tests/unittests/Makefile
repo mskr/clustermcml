@@ -77,7 +77,7 @@ detectBoundaryCollision.exe: detectBoundaryCollision.o
 		/LIBPATH:$(MSVC_LIB) \
 		/LIBPATH:$(MSVC_LIB_UCRT) \
 		/LIBPATH:$(MSVC_LIB_UM) \
-		/OUT:"detectBoundaryCollisions.exe"
+		/OUT:"detectBoundaryCollision.exe"
 
 # Compile
 detectBoundaryCollision.o: detectBoundaryCollision.cpp.transpiled.cpp.preprocessed.cpp singlemcml-geometrylib-windows.o ../../clcheck.h ../../clmem.h ../../geometrylib.h ../../Layer.h ../../Boundary.h
