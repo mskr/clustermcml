@@ -8,31 +8,17 @@
 #define __global
 #define BoundaryArray __global struct Boundary*
 
-/**
-* Return index difference from current to adjacent layer in case
-* there is an intersection with the boundary in the photon step.
-* Also outputs collision normal and path length to intersection.
-*/
-// int detectBoundaryCollision_old(int currentLayer, Line3 line, RHeightfield* boundaries, float3* normal, float* pathLenToIntersection) {
-// 	// Find intersection with top boundary
-// 	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer], normal);
-// 	if (*pathLenToIntersection >= 0) {
-// 		return -1;
-// 	}
-// 	// Find intersection with bottom boundary
-// 	*pathLenToIntersection = intersectHeightfield(line, boundaries[currentLayer+1], normal);
-// 	if (*pathLenToIntersection >= 0) {
-// 		return 1;
-// 	}
-// 	return 0;
-// }
 
+
+
+//TODO include detectBoundaryCollision as separate header to share with main program
 /**
 * Return index difference from current to adjacent layer in case
 * there is an intersection with the boundary in the photon step.
 * Also outputs collision normal and path length to intersection.
+* The disabled boundary prevents colliding with a boundary twice in a row due to float inaccuracies.
 */
-int detectBoundaryCollision(int currentLayer, struct Line3 line,
+int detectBoundaryCollision(int currentLayer, int disabledBoundary, struct Line3 line,
 	BoundaryArray boundaries, __global float* heights, __global float* spacings,
 	float3* normal, float* pathLenToIntersection) {
 
@@ -46,7 +32,7 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
-	if (*pathLenToIntersection >= 0) {
+	if (*pathLenToIntersection >= 0 && disabledBoundary != currentLayer) {
 		return -1;
 	}
 
@@ -60,7 +46,7 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
-	if (*pathLenToIntersection >= 0) {
+	if (*pathLenToIntersection >= 0 && disabledBoundary != currentLayer+1) {
 		return 1;
 	}
 	return 0;
@@ -79,7 +65,7 @@ struct Result {
 };
 
 
-Result test(int currentLayer, Line3 line, Boundary* boundaries, float* heights, float* spacings) {
+Result test(int currentLayer, int disabledBoundary, Line3 line, Boundary* boundaries, float* heights, float* spacings) {
 
 	printf("line={ start=(%f,%f,%f) end=(%f,%f,%f) }\n", line.start[0], line.start[1], line.start[2], line.end[0], line.end[1], line.end[2]);
 	printf("topBoundary=   { isHeightfield=%d", boundaries[currentLayer].isHeightfield);
@@ -98,7 +84,7 @@ Result test(int currentLayer, Line3 line, Boundary* boundaries, float* heights, 
 	printf("\n");
 
 	Result result;
-	result.layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &result.normal, &result.pathLenToIntersection);
+	result.layerChange = detectBoundaryCollision(currentLayer, disabledBoundary, line, boundaries, heights, spacings, &result.normal, &result.pathLenToIntersection);
 
 	printf("layerChange=%d normal=(%f,%f,%f) pathLenToIntersection=%f\n", result.layerChange, result.normal.x, result.normal.y, result.normal.z, result.pathLenToIntersection);
 
@@ -109,11 +95,16 @@ Result test(int currentLayer, Line3 line, Boundary* boundaries, float* heights, 
 
 int main() {
 
+	// Warning: This unit test has some test cases missing
+
 	int currentLayer = 0;
+
+	int disabledBoundary = -1; //TODO test this with successive collisions (for reasoning see mcmlKernel.c)
+
 	Line3 line = { {0.0f, 0.0f, 0.05f}, {100.0f, 100.0f, -0.05f} };
 
-	float heights[10] = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f};
-	float spacings[10] = {0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f,0.01f};
+	float heights[10] = {0.0f};
+	float spacings[10] = {0.0001f};
 
 	Boundary boundaries1[2] = {
 		{
@@ -132,7 +123,7 @@ int main() {
 		}
 	};
 
-	Result result1 = test(currentLayer, line, boundaries1, heights, spacings);
+	Result result1 = test(currentLayer, disabledBoundary, line, boundaries1, heights, spacings);
 
 
 	if (result1.layerChange == -1) {
@@ -160,7 +151,7 @@ int main() {
 		}
 	};
 
-	Result result2 = test(currentLayer, line, boundaries2, heights, spacings);
+	Result result2 = test(currentLayer, disabledBoundary, line, boundaries2, heights, spacings);
 
 
 	if (result2.layerChange == -1) {

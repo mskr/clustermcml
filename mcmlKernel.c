@@ -123,8 +123,9 @@ bool roulette(uint* rng_state, float* photonWeight) {
 * Return index difference from current to adjacent layer in case
 * there is an intersection with the boundary in the photon step.
 * Also outputs collision normal and path length to intersection.
+* The disabled boundary prevents colliding with a boundary twice in a row due to float inaccuracies.
 */
-int detectBoundaryCollision(int currentLayer, struct Line3 line,
+int detectBoundaryCollision(int currentLayer, int disabledBoundary, struct Line3 line,
 	BoundaryArray boundaries, __global float* heights, __global float* spacings,
 	float3* normal, float* pathLenToIntersection) {
 
@@ -138,7 +139,7 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
-	if (*pathLenToIntersection >= 0) {
+	if (*pathLenToIntersection >= 0 && disabledBoundary != currentLayer) {
 		return -1;
 	}
 
@@ -152,7 +153,7 @@ int detectBoundaryCollision(int currentLayer, struct Line3 line,
 		*pathLenToIntersection = intersectPlaneWithLine(plane, line);
 	}
 
-	if (*pathLenToIntersection >= 0) {
+	if (*pathLenToIntersection >= 0 && disabledBoundary != currentLayer+1) {
 		return 1;
 	}
 	return 0;
@@ -410,8 +411,8 @@ DEBUG_BUFFER_ARG) // optional debug buffer
 		// Test intersection with top and bottom boundaries of current layer
 		float3 normal = (float3)(0); float pathLenToIntersection = 0;
 		struct Line3 line = { pos, pos + s*dir };
-		int layerChange = detectBoundaryCollision(currentLayer, line, boundaries, heights, spacings, &normal, &pathLenToIntersection);
-		if (layerChange != 0 && disabledBoundary != max(currentLayer, currentLayer+layerChange)) {
+		int layerChange = detectBoundaryCollision(currentLayer, disabledBoundary, line, boundaries, heights, spacings, &normal, &pathLenToIntersection);
+		if (layerChange != 0) {
 
 			// In theory, the photon should now be moved exactly onto the boundary. Another collision with the same boundary should thus not be possible in the next step.
 			// Due to floating point inaccuracies, the photon may be moved slightly beyond or before the boundary. Therefore we need to memorize for the next step that this boundary is temporarly disabled for collision.
