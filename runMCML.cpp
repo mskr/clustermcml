@@ -143,12 +143,12 @@ static float getHeightAt(uint32_t n, float* heights, float* spacings, float pos)
 */
 static bool checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, float* spacings) {
 
-	// Check if all heights and spacings >= 0.0f
+	// Check if all spacings >= 0.0f
 	for (uint32_t i = 0; i < n; i++) {
 		if (!boundaries[i].isHeightfield) continue;
 		for (uint32_t j = 0; j < boundaries[i].heightfield.n_heights; j++) {
-			if (!(heights[boundaries[i].heightfield.i_heights + j] >= 0.0f)) return false;
-			if (!(spacings[boundaries[i].heightfield.i_spacings + j] >= 0.0f)) return false;
+			if (!(spacings[boundaries[i].heightfield.i_spacings + j] >= 0.0f)) 
+                return false;
 		}
 	}
 
@@ -176,8 +176,14 @@ static bool checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, fl
 					z_j = boundaries[j].z;
 				}
 
-				if (i < j) { if (!(z_i < z_j)) return false; }
-				else       { if (!(z_i > z_j)) return false; }
+				if (i < j) { 
+                    if (!(z_i < z_j)) 
+                        return false; 
+                }
+				else { 
+                    if (!(z_i > z_j)) 
+                        return false; 
+                }
 
 				r += spacings[boundaries[i].heightfield.i_spacings + k];
 			}
