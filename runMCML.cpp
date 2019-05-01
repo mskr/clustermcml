@@ -751,6 +751,8 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 		// Wait for request
 		MPI(Recv, &K, 1, MPI_UINT32_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
+		out << '\r' << L << " photons left" << Log::flush;
+
 		// Respond
 		if (L >= K) {
 			MPI(Send, 0, 0, MPI_INT, status.MPI_SOURCE, CONTINUE, MPI_COMM_WORLD);
@@ -770,6 +772,8 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 			CL(EnqueueNDRangeKernel, cmdQueue, kernel, 1, NULL, &totalThreadCount, &simdThreadCount, 0, NULL, 0);
 			CL(Finish, cmdQueue);
 			L -= countFinishedPhotons(cmdQueue, totalThreadCount);
+
+			out << '\r' << L << " photons left" << Log::flush;
 		}
 	}
 }
@@ -777,7 +781,7 @@ static void runMPICoordinator(SimulationStruct* sim, cl_command_queue cmdQueue, 
 /**
 *
 */
-static void runMPIWorker(SimulationStruct* sim, cl_command_queue cmdQueue, cl_kernel kernel, 
+static void runMPIWorker(cl_command_queue cmdQueue, cl_kernel kernel, 
 	size_t totalThreadCount, size_t simdThreadCount, float R_specular, int rank) {
 
 	// Communication threshold
@@ -1192,7 +1196,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 				} else {
 
-					runMPIWorker(&simulations[simIndex], cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, rank);
+					runMPIWorker(cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, rank);
 				}
 			} else {
 
