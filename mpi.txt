@@ -1,7 +1,7 @@
 localhost 2 # utilize power of first node by starting more than one process (where first one is just serving the work)
 134.60.46.136
-134.60.46.137
-#134.60.46.138 #FIXME this node has had no access to Z: drive
+#134.60.46.137
+134.60.46.138
 134.60.46.139
 134.60.46.140
-#134.60.46.141 #FIXME this node has very long response time (> 1 minute)
+134.60.46.141
