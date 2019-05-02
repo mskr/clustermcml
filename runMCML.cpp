@@ -129,11 +129,13 @@ static float getHeightAt(uint32_t n, float* heights, float* spacings, float pos)
 		r_last = r;
 		r += spacings[i < n ? i : n-1];
 		i++;
-		if (i >= n) return heights[n-1];
+		if (i >= n) return heights[n-1]; // pos outside sampled range, return last sample
 	}
-	float h0 = heights[i-1 < n ? (i-1 > 0 ? i-1 : 0) : n-1];
-	float h1 = heights[i < n ? i : n-1];
-	return lerp(h0, h1, r - r_last);
+    // Now pos is between r_last and r (
+    float a = r==r_last? 0.0f : (pos - r_last) / (r - r_last);
+	float h0 = heights[i==0? 0 : i<=n? i-1 : n-1]; // read sample, clamping to first resp. last sample
+	float h1 = heights[i<n? i : n-1]; // read sample, clamping to last sample
+	return lerp(h0, h1, a);
 }
 
 
@@ -143,11 +145,11 @@ static float getHeightAt(uint32_t n, float* heights, float* spacings, float pos)
 */
 static bool checkBoundaries(uint32_t n, Boundary* boundaries, float* heights, float* spacings) {
 
-	// Check if all spacings >= 0.0f
+	// Check if all spacings > 0.0f
 	for (uint32_t i = 0; i < n; i++) {
 		if (!boundaries[i].isHeightfield) continue;
 		for (uint32_t j = 0; j < boundaries[i].heightfield.n_heights; j++) {
-			if (!(spacings[boundaries[i].heightfield.i_spacings + j] >= 0.0f)) 
+			if (!(spacings[boundaries[i].heightfield.i_spacings + j] > 0.0f)) 
                 return false;
 		}
 	}
