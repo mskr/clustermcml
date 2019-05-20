@@ -20,6 +20,9 @@ parser.add_argument('files', type=str, nargs='+',
 parser.add_argument('--compare', dest='COMPARE_MODE_ENABLED', action='store_const', const=True, default=False,
 	help='Compare given mco files by using same plot for corresponding data')
 
+parser.add_argument('--boundaries', dest='PLOT_BOUNDARIES', action='store_const', const=True, default=False,
+	help='Plot boundaries on second y axis')
+
 parser.add_argument('-o', dest='outFolder', action='store', default='comparison',
 	help='Output folder')
 
@@ -46,16 +49,35 @@ Plottable = Enum('Plottable', 'NONE A_l A_z Rd_r Rd_a Tt_r Tt_a A_rz Rd_ra Tt_ra
 
 # Plot and label 2- or 3-dimensional data array
 # Return PDF file path to be saved
-def plotToPDF_internal(folder, components, data, resolutions, units):
+def plotToPDF_internal(folder, components, data, resolutions, units, boundaries_x, boundaries_y):
 
 	path = ''
 
 	if len(components) == 2:
-		PLT.plot(data)
+		if args.PLOT_BOUNDARIES:
+
+			# Make 2 y-axes
+			fig, ax1 = PLT.subplots()
+			ax1.plot(data)
+			ax1.set_xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
+			ax1.set_ylabel(components[0]+' ['+str(resolutions[1])+units[1]+']')
+			ax1.set_yscale('log')
+			ax2 = ax1.twinx()
+			ax2.set_ylabel('height [cm]')
+			for i in range(0, len(boundaries_x)):
+
+				# If boundary doesnt fill the domain, continue it as straight line
+				if boundaries_x[i][len(boundaries_x[i])-1]/resolutions[0] < len(data):
+					boundaries_x[i].append(len(data)*resolutions[0])
+					boundaries_y[i].append(boundaries_y[i][len(boundaries_y[i])-1])
+
+				ax2.plot(list(map(lambda x: x/resolutions[0], boundaries_x[i])), boundaries_y[i], linestyle='dashed', linewidth=1)
+		else:
+			PLT.plot(data)
+			PLT.ylabel(components[0]+' ['+str(resolutions[1])+units[1]+']')
+			PLT.yscale('log')
+			PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
 		PLT.title(components[0]+'_'+components[1])
-		PLT.xlabel(components[1]+' ['+str(resolutions[0])+units[0]+']')
-		PLT.ylabel(components[0]+' ['+str(resolutions[1])+units[1]+']')
-		PLT.yscale('log')
 		path = folder + '/' + components[0]+'_'+components[1] + '.pdf'
 	
 	elif len(components) == 3:
@@ -79,11 +101,17 @@ def plotToPDF_internal(folder, components, data, resolutions, units):
 	return path
 
 # Plot one 2- or 3-dimensional data array
-def plotToPDF(folder, components, data, resolutions, units):
+def plotToPDF(folder, components, data, resolutions, units, boundaries_x, boundaries_y):
 
 	PLT.figure()
 
-	path = plotToPDF_internal(folder, components, data, resolutions, units)
+	path = plotToPDF_internal(folder, components, data, resolutions, units, boundaries_x, boundaries_y)
+
+	if args.PLOT_BOUNDARIES:
+		boundary_names = []
+		for i in range(0, len(boundaries_x)):
+			boundary_names.append('Boundary ' + str(i))
+		PLT.legend(boundary_names)
 
 	if not os.path.exists(folder): os.makedirs(folder)
 	PLT.savefig(path)
@@ -92,19 +120,22 @@ def plotToPDF(folder, components, data, resolutions, units):
 	print('Written ' + path)
 
 # Plot a batch of data arrays
-def plotAllToPDF(folder, components, data_arrays, resolutions, units, data_names):
+def plotAllToPDF(folder, components, data_arrays, resolutions, units, data_names, boundaries_x, boundaries_y):
 
 	PLT.figure()
 
 	path = ''
 
 	for data in data_arrays:
-		path = plotToPDF_internal(folder, components, data, resolutions, units)
+		path = plotToPDF_internal(folder, components, data, resolutions, units, boundaries_x, boundaries_y)
+
+	boundary_names = []
+	if args.PLOT_BOUNDARIES:
+		for i in range(0, len(boundaries_x)):
+			boundary_names.append('Boundary ' + str(i))
+	PLT.legend(data_names + boundary_names)
 
 	if not os.path.exists(folder): os.makedirs(folder)
-
-	PLT.legend(data_names)
-
 	PLT.savefig(path)
 	PLT.close()
 	
@@ -261,6 +292,34 @@ def checkOutData(Rd_r, Rd_a, Rd_ra, A_l, A_z, A_rz, Tt_r, Tt_a, Tt_ra, nr, nz, n
 			exit()
 
 
+def parseBoundaries(stripped_lines):
+
+	all_x = []
+	all_y = []
+
+	for l in stripped_lines:
+		if l[0] == 'b':
+			b = l.split()
+			b.pop(0)
+			n = b.pop(0)
+
+			x = []
+			y = []
+
+			current_x = 0
+
+			for i in range(0, len(b)):
+				if i%2==0:
+					y.append(float(b[i]))
+				else:
+					current_x += float(b[i])
+					x.append(current_x)
+
+			all_x.append(x)
+			all_y.append(y)
+
+	return all_x, all_y
+
 ########################################################################################
 
 # Multiplies distance in x with values in array
@@ -284,6 +343,10 @@ last_na = 0
 last_nr = 0
 last_dr = 0
 
+last_boundaries_x = []
+last_boundaries_y = []
+all_boundaries_x = {}
+all_boundaries_y = {}
 
 # Extract the data from each mco file
 for i in range(0, len(args.files)):
@@ -307,6 +370,9 @@ for i in range(0, len(args.files)):
 
 		checkOutData(Rd_r, Rd_a, Rd_ra, A_l, A_z, A_rz, Tt_r, Tt_a, Tt_ra, nr, nz, na)
 
+		boundaries_x, boundaries_y = parseBoundaries(stripped_lines)
+		all_boundaries_x[mco] = boundaries_x
+		all_boundaries_y[mco] = boundaries_y
 
 		if args.COMPARE_MODE_ENABLED:
 
@@ -327,29 +393,64 @@ for i in range(0, len(args.files)):
 			last_nr = nr
 			last_dr = dr
 
+			if args.PLOT_BOUNDARIES:
+				if i > 0:
+					if len(last_boundaries_x) != len(boundaries_x) or len(last_boundaries_y) != len(boundaries_y):
+						print('Cannot plot different number of boundaries in compare mode')
+						exit()
+					for j in range(0, len(boundaries_x)):
+						if len(last_boundaries_x[j]) != len(boundaries_x[j]):
+							print('Cannot plot boundaries with different number of samples in compare mode')
+							exit()
+						for k in range(0, len(boundaries_x[j])):
+							if last_boundaries_x[j][k] != boundaries_x[j][k]:
+								print('Cannot plot different boundaries in compare mode')
+								exit()
+					for j in range(0, len(boundaries_y)):
+						if len(last_boundaries_x[j]) != len(boundaries_y[j]):
+							print('Cannot plot boundaries with different number of samples in compare mode')
+							exit()
+						for k in range(0, len(boundaries_y[j])):
+							if last_boundaries_x[j][k] != boundaries_y[j][k]:
+								print('Cannot plot different boundaries in compare mode')
+								exit()
+				last_boundaries_x = boundaries_x
+				last_boundaries_y = boundaries_y
+
 		else:
 
 			folder = mco[0:-4]
-			plotToPDF(folder, ['Rd_times_r', 'r'], multiplyXOntoY(Rd_r, dr), [dr, 1],          ['cm', 'cm-2 * cm']) # read: radius in cm and reflectance in J per square cm multiplied with r
-			plotToPDF(folder, ['Rd', 'r'],         Rd_r,                     [dr, 1],          ['cm', 'cm-2']) # read: radius in cm and reflectance in J per square cm multiplied with r
-			plotToPDF(folder, ['Rd', 'a'],         Rd_a,                     [na/90.0, 1],     ['deg', 'sr-1']) # reflectance per solid angle
-			plotToPDF(folder, ['Rd', 'r', 'a'],    Rd_ra,                    [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
-			plotToPDF(folder, ['A', 'l'],          A_l,                      [1, 1],           ['layer', '-'])
-			plotToPDF(folder, ['A', 'z'],          A_z,                      [dz, 1],          ['cm', 'cm-1'])
-			plotToPDF(folder, ['A', 'r', 'z'],     A_rz,                     [dr, dz, 1],      ['cm', 'cm', 'cm-3'])
-			plotToPDF(folder, ['Tt', 'r', 'a'],    Tt_ra,                    [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'])
-			plotToPDF(folder, ['Tt_times_r', 'r'], multiplyXOntoY(Tt_r, dr), [dr, 1],          ['cm', 'cm-2 * cm'])
-			plotToPDF(folder, ['Tt', 'r'],         Tt_r,                     [dr, 1],          ['cm', 'cm-2'])
-			plotToPDF(folder, ['Tt', 'a'],         Tt_a,                     [na/90.0, 1],     ['deg', 'sr-1'])
+			plotToPDF(folder, ['Rd_times_r', 'r'], multiplyXOntoY(Rd_r, dr), [dr, 1],          ['cm', 'cm-2 * cm'], # read: radius in cm and reflectance in J per square cm multiplied with r
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Rd', 'r'],         Rd_r,                     [dr, 1],          ['cm', 'cm-2'], # read: radius in cm and reflectance in J per square cm multiplied with r
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Rd', 'a'],         Rd_a,                     [na/90.0, 1],     ['deg', 'sr-1'], # reflectance per solid angle
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Rd', 'r', 'a'],    Rd_ra,                    [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['A', 'l'],          A_l,                      [1, 1],           ['layer', '-'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['A', 'z'],          A_z,                      [dz, 1],          ['cm', 'cm-1'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['A', 'r', 'z'],     A_rz,                     [dr, dz, 1],      ['cm', 'cm', 'cm-3'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Tt', 'r', 'a'],    Tt_ra,                    [dr, na/90.0, 1], ['cm', 'deg', 'cm-2 * sr-1'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Tt_times_r', 'r'], multiplyXOntoY(Tt_r, dr), [dr, 1],          ['cm', 'cm-2 * cm'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Tt', 'r'],         Tt_r,                     [dr, 1],          ['cm', 'cm-2'],
+				boundaries_x, boundaries_y)
+			plotToPDF(folder, ['Tt', 'a'],         Tt_a,                     [na/90.0, 1],     ['deg', 'sr-1'],
+				boundaries_x, boundaries_y)
 
 
 if args.COMPARE_MODE_ENABLED:
 
 	mcos = list(map(lambda mco: os.path.split(mco)[1], mcos))
 
-	plotAllToPDF(args.outFolder, ['Rd_times_r', 'r'], map(lambda array: multiplyXOntoY(array, last_dr), Rd_r_arrays), [last_dr, 1],      ['cm', 'cm-2 * cm'], mcos)
-	plotAllToPDF(args.outFolder, ['Rd', 'r'],         Rd_r_arrays,                                                    [last_dr, 1],      ['cm', 'cm-2'], mcos)
-	plotAllToPDF(args.outFolder, ['Rd', 'a'],         Rd_a_arrays,                                                    [last_na/90.0, 1], ['deg', 'sr-1'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt_times_r', 'r'], map(lambda array: multiplyXOntoY(array, last_dr), Tt_r_arrays), [last_dr, 1],      ['cm', 'cm-2 * cm'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'r'],         Tt_r_arrays,                                                    [last_dr, 1],      ['cm', 'cm-2'], mcos)
-	plotAllToPDF(args.outFolder, ['Tt', 'a'],         Tt_a_arrays,                                                    [last_na/90.0, 1], ['deg', 'sr-1'], mcos)
+	plotAllToPDF(args.outFolder, ['Rd_times_r', 'r'], map(lambda array: multiplyXOntoY(array, last_dr), Rd_r_arrays), [last_dr, 1],      ['cm', 'cm-2 * cm'], mcos, boundaries_x, boundaries_y)
+	plotAllToPDF(args.outFolder, ['Rd', 'r'],         Rd_r_arrays,                                                    [last_dr, 1],      ['cm', 'cm-2'], mcos, boundaries_x, boundaries_y)
+	plotAllToPDF(args.outFolder, ['Rd', 'a'],         Rd_a_arrays,                                                    [last_na/90.0, 1], ['deg', 'sr-1'], mcos, boundaries_x, boundaries_y)
+	plotAllToPDF(args.outFolder, ['Tt_times_r', 'r'], map(lambda array: multiplyXOntoY(array, last_dr), Tt_r_arrays), [last_dr, 1],      ['cm', 'cm-2 * cm'], mcos, boundaries_x, boundaries_y)
+	plotAllToPDF(args.outFolder, ['Tt', 'r'],         Tt_r_arrays,                                                    [last_dr, 1],      ['cm', 'cm-2'], mcos, boundaries_x, boundaries_y)
+	plotAllToPDF(args.outFolder, ['Tt', 'a'],         Tt_a_arrays,                                                    [last_na/90.0, 1], ['deg', 'sr-1'], mcos, boundaries_x, boundaries_y)
