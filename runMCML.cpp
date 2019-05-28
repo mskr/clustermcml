@@ -1036,11 +1036,9 @@ static void reduceOutputArrays(SimulationStruct sim, cl_mem R, cl_mem A, cl_mem 
 /**
 * Write mco file
 */
-static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weight* T_ra) {
+static void writeMCOFile(SimulationStruct sim, Weight* R_ra, Weight* A_rz, Weight* T_ra, double duration_sec) {
 
-	uint64_t timeStart = 0, timeEnd = 0; //TODO measure total elapsed time
-
-	assert(Write_Simulation_Results(A_rz, T_ra, R_ra, &sim, timeEnd - timeStart));
+	assert(Write_Simulation_Results(A_rz, T_ra, R_ra, &sim, duration_sec));
 	
 	out << "Output file written: " << sim.outp_filename << "\n";
 }
@@ -1185,6 +1183,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 		// Initialize necessary start parameters
 		initPhotonStates(totalThreadCount, R_specular);
 
+		double duration_sec = 0;
 
 		// Simulate
 
@@ -1194,7 +1193,16 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 				if (rank == 0) {
 
+					std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+
 					runMPICoordinator(&simulations[simIndex], cmdQueue, kernel, totalThreadCount, simdThreadCount, R_specular, processCount);
+
+					auto duration_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::high_resolution_clock::now() - start).count();
+
+					out << "Time elapsed = " << duration_ns / 1000000.0 << "ms\n";
+
+					duration_sec = duration_ns / 1E9f;
 
 				} else {
 
@@ -1287,7 +1295,7 @@ void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThread
 
 		if (rank == 0) {
 			out << "Write to file...\n";
-			writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance);
+			writeMCOFile(simulations[simIndex], totalReflectance, totalAbsorption, totalTransmittance, duration_sec);
 		}
 
 

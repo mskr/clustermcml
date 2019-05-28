@@ -52,7 +52,7 @@ static int interpret_arg(int argc, char* argv[], unsigned long long* seed, int* 
 }
 
 static int Write_Simulation_Results(unsigned long long* A_rz, unsigned long long* Tt_ra, unsigned long long* Rd_ra,
-SimulationStruct* sim, clock_t simulation_time)
+SimulationStruct* sim, double simulation_time)
 {
 	FILE* pFile_inp;
 	FILE* pFile_outp;
@@ -100,7 +100,7 @@ SimulationStruct* sim, clock_t simulation_time)
 	fprintf(pFile_outp,"####\n\n");
 
 	// Write simulation time
-	fprintf(pFile_outp,"# User time: %.2f sec\n\n",(double)simulation_time/CLOCKS_PER_SEC);
+	fprintf(pFile_outp,"# User time: %.2f sec\n\n",simulation_time);
 
 
 	fprintf(pFile_outp,"InParam\t\t# Input parameters:\n");
