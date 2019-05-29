@@ -32,7 +32,7 @@ The report will first explain the principles of Monte Carlo light transport, bef
 	\label{trajectory}
 \end{figure}
 
-Monte Carlo simulation of light is very accurate, because it simulates single photon packets and records the distribution of a very large number of photons. This implies, that it is a statistical method, using a pseudo random number generator to compute, what can be thought of random walks of photons, visualized in \autoref{trajectory}.
+Monte Carlo simulation of light is very accurate, because it simulates single photon packets and records the distribution of a large number of photons. This implies, that it is a statistical method, using a pseudo random number generator to compute, what can be thought of random walks of photons, visualized in \autoref{trajectory}.
 
 A photon walk is defined by scattering and absorption in a specific material. These are also called the interaction properties:
 
@@ -90,13 +90,15 @@ The simulation ends, when the target number of photons equals the number of phot
 
 \subsection{Previous implementations}
 
-Wang and Jacques~\cite{wang1992monte} published a C implementation of MCML in 1992 along with extensive documentation. The code is purely sequential and because of the inherently large number of photons required, it was worth working on another implementation. Alerstam et al.~\cite{alerstam2008parallel} published a GPU implementation in 2008, which uses the Nvidia CUDA interface. They achieved much faster simulations, but their program runs only on single Nvidia GPUs.
+Wang and Jacques~\cite{wang1992monte} published C source code implementing MCML in 1992 along with extensive documentation. The program is purely sequential and because of the inherently large number of photons required, it was worth working on another implementation.
+
+Alerstam et al.~\cite{alerstam2008parallel} published a GPU implementation in 2008, which uses the Nvidia CUDA interface. The source code, user manual and implementation notes are available as download from the linked website, as of now. They achieved much faster simulations, but their program runs only on single Nvidia GPUs.
 
 \section{Contribution}
 
-The implementation of MCML presented here can use multiple PCs and GPUs by any vendor for parallelization and is based on OpenCL and MPI. Details are described in the implementation section.
+The implementation of MCML presented here, that I want to call clustermcml, can use multiple PCs and GPUs by any vendor for parallelization and is based on OpenCL and MPI. Details are described in the implementation section.
 
-The other contribution is support for non-planar layers. This is done by representing boundaries as radially symmetric heightfields, where the symmetry allows to store only a 1-dimensional array of height samples. Non-symmetric heightfields would only make sense, once photon distributions are also recorded in two dimensions. Additionally, each height value is associated with a spacing, to enable irregular grids. The surface between height samples is defined by linear interpolation. In 3-dimensional space, a surface is therefore a sequence of connected concentric capped cones of finite height.
+The other contribution is support for non-planar layers. This is done by representing boundaries as radially symmetric heightfields. The symmetry allows to store only a 1-dimensional array of height samples. Non-symmetric heightfields would only make sense, once photon distributions are also recorded in two dimensions. Additionally, each height value is associated with a spacing, to enable irregular grids. The surface between height samples is defined by linear interpolation. In 3-dimensional space, a surface is therefore a sequence of connected concentric capped cones of finite height.
 
 \section{Implementation}
 
@@ -126,6 +128,8 @@ The MCML kernel performs the actual photon transport. As input it receives an ar
 The output consists of three radiance arrays for diffuse reflectance, absorbance and transmittance. The arrays can be thought of histograms over radius with $n_r$ bins of size $d_r$ centimeters, respectively. A second dimension can be added by specifying a number of depth bins $n_z > 1$ of size $d_z$ for the absorption array, or a number of angular bins $n_a > 1$ for the reflectance and transmittance arrays. See the MCI file format in~\cite{wang1992monte}.
 
 A photon packet is defined as having an energy weight of $1.0$ when it is launched. The weight may be reduced multiple times by absorption during the walk, before the remaining fraction is added to a total radiance, which is finally normalized by the number of photon packets simulated. This reduces variance, compared to a simulation of photons, that really behave atomically. The packet, however, behaves like a single photon in the sense that it has a single path.
+
+When a boundary collision is detected, the photon moves a shorter path than the previously calculated step length. The original MCML implementation saves the remaining step length for the next step, but CUDAMCML authors argue, that the randomized next step length is independent of its history. The implementation presented here therefore also does not save the remaining step length, but ignores it.
 
 An additional data structure is the array of photon states, which is needed to preserve state across GPU runs. A photon state contains current position, direction, layer index, weight and state of the random number generator.
 
@@ -171,7 +175,7 @@ The recorded radiance is clamped, so that all photon packets that fall outside t
 
 The implementation checks if heightfields overlap each other before starting the simulation. Overlapping heightfields constitute an invalid layer model.
 
-\subsection{Boundary Intersection}
+\subsection{Boundary Intersection Test}
 
 After each step of a photon packet, the moved line has to be tested for an intersection with two radial heightfields, the one at the top of the current layer and the one at the bottom.
 
@@ -196,17 +200,65 @@ clustermcml-windows.exe mcmlKernel.c "-Werror" sample.mci
 
 where the machinefile mpi.txt specifies the IP address and number of processes per MPI node. The executable is called clustermcml-windows and receives as first argument the MCML kernel file, which will be compiled by the OpenCL implementation. After the kernel file follow the OpenCL compiler arguments, where this example wants to print all warnings as errors. On the tested machines, the current kernel code did not generate warnings. You can add other compiler flags, such as "-D IGNORE\_A" to skip writing to absorption array or "-D IGNORE\_HEIGHTFIELDS" to use implicit flat boundaries, where both options exist to speed up simulation times.
 
+There is another make target for an executable called singlemcml-windows, which is a non-parallel and CPU-only version of the program for the purpose of easier debugging.
+
 The implementation was currently only built and run on Microsoft Windows, but all used libraries are also available on other platforms. There is no build system other than make (on Windows: nmake) in place, because the project is relatively small and simple. The Makefile can be altered with analog compiler commands and flags, as well as runtime and library paths.
 
 \subsection{Limitations}
 
-To obtain a height value at arbitrary floating point coordinates, the heightfield must be interpolated. Therefore it would make sense to store them in textures and use built-in access operators on the GPU. Currently, the program uses raw buffers and does interpolation in code.
+There are minor deviations from original MCML. The following points are very similar to the limitations of CUDAMCML, as can be seen in their manual in section 2.4.
+
+\begin{itemize}
+\item The binary output is currently not supported. MCO files are always written as ASCII.
+\item Glass layers are not supported. Reflectance will always be reported as diffuse.
+\item The maximum number of photons is limited to $2^{32}-1$. Also the number of photons must be higher than the number of GPU threads, which will be printed on program startup.
+\item Input data is not checked for sanity.
+\item All calculations are preformed with 32-bit floating point precision. This is also the case for CUDAMCML and was shown to have only slight effect.
+\end{itemize}
+
+The implementation currently leaves much room for performance optimization. Important aspects are listed here.
+
+\begin{itemize}
+\item The array of photon states is iterated sequentially after each GPU run, to check for photons to restart. This operation can be parallelized or integrated into the already parallel kernel. CUDAMCML restarts finished photons immediately from the kernel. This also avoids inactive threads, but introduces the cost of another atomic counter to keep track of total finished photons.
+	
+\item GPUs have global and local memory spaces, where access to local memory is usually faster. Therefore, CUDAMCML accumulates weights in local variable before performing an atomic add on a global output array. The implementation presented here performs the atomic add every time, when a weight is stored.
+	
+\item To read a height value from a boundary at arbitrary floating point coordinates, the heightfield must be interpolated. Therefore it would be efficient to store the heightfields in textures and use built-in access operators on the GPU. Currently, the program uses raw buffers and does interpolation in code.
+\end{itemize}
 
 \section{Verification}
 
+\autoref{verification1} compares the diffuse reflectance profiles of clustermcml and CUDAMCML using 100 million photons and one layer of thickness $dl=0.1cm$. The absorption coefficient is $\mu_a=0.1$, the scattering coefficient $\mu_s=1$ and scattering anisotropy $g=0.5$. The refractive indices are $n=1.34$ inside the layer and $1$ outside. The detection window has a size of $1cm$ and a resolution of $0.005cm$. Note that a logarithmic scale is used for a quantity, that is reflectance multiplied by radius. The plots indicate correct results despite different amounts of noise.
+
+\begin{figure}[ht!]
+	\includegraphics[width=\linewidth]{img/verification1.pdf}
+	\caption{Comparison of the diffuse reflectance profiles obtained with the implementation presented in this report, clustermcml, and the previous implementation CUDAMCML as reference.}
+	\label{verification1}
+\end{figure}
+
 \section{Results}
 
-\section{Conclusion}
+This section shows novel radiance profiles that arise from simulations with different boundary surface shapes.
+
+\begin{figure}[ht!]
+	\includegraphics[width=\linewidth]{img/result1.pdf}
+	\caption{Comparison of diffuse reflectance profiles of 7 different surfaces.}
+	\label{result1}
+\end{figure}
+
+\begin{figure}[ht!]
+	\includegraphics[width=\linewidth]{img/result2.pdf}
+	\caption{Comparison of diffuse reflectance profiles of flat surface with 4 variations of curved surfaces.}
+	\label{result2}
+\end{figure}
+
+\begin{figure}[ht!]
+\includegraphics[width=\linewidth]{img/result3.pdf}
+\caption{Comparison of diffuse reflectance profiles of flat surface with 2 variation of noise surfaces.}
+\label{result3}
+\end{figure}
+
+\section{Conclusion and Future Work}
 
 \bibliography{bibliography}
 \end{document}          
