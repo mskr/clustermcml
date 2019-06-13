@@ -268,11 +268,6 @@ float3 normal, bool topOrBottom, float* outTransmitAngle, float* outCosIncident,
 		return false;
 	}
 
-	// shortcut
-	if (layers[currentLayer].n < otherN && otherN * otherN * (1.0f - cosIncident * cosIncident)) {
-		return true;
-	}
-
 	// compute refraction
 	float incidentAngle = acos(cosIncident);
 	float sinTransmit = layers[currentLayer].n * sin(incidentAngle) / otherN; // Snell's law
