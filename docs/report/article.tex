@@ -2,6 +2,7 @@
 \usepackage[english]{babel} % advanced multi-language features
 \usepackage{graphicx} % figures
 \usepackage{hyperref} % references and URLs are clickable
+\usepackage{cleveref}
 \usepackage{listings} % simple code listings (monospaced font, line oriented, no syntax highlighting)
 \usepackage[section]{placeins} % restricting floating elements like figures with FloatBarriers
 \bibliographystyle{IEEEtranS}
@@ -15,12 +16,14 @@
 \maketitle
 
 \begin{abstract}
-	This project report describes an extended implementation of multi-layered Monte Carlo photon transport\cite{wang1992monte} (MCML). It supports structured boundaries, whereas original MCML only supported planar layers. This allows to use the method for simulation of light in more realistic materials. The report presents and compares radiance profiles of different boundary shapes. The focus lies on the properties reflectance and transmittance, that are important for visual appearance.
+	This project report describes an extended implementation of MCML. It supports structured boundaries, whereas original MCML only supported planar layers. This allows to use the method for simulation of light in more realistic materials. The report presents and compares radiance profiles of different boundary shapes. The focus lies on the properties reflectance and transmittance, that are important for visual appearance.
 \end{abstract}
 
 \section{Introduction}
 
-The purpose of the MCML implementation presented here, is to provide a ground truth of surface appearance for physically based rendering. Monte Carlo methods are accepted to be leading in accuracy, but low-noise results have to be bought with long computation times. The implementation produces radiance profiles, that reveal the effect of varying surface shapes, and therefore allow to model surface appearance with approximate analytic curves. The curve equations, when found, can be used in faster rendering algorithms.
+Light transport simulation has uses in many fields nowadays. In astrophysics, it can reveal the material constitution of stars. In medicine, it supports non-invasive diagnostics by providing information for the choice of parameters before operating radiative devices such as lasers or X-rays. Light transport also became important in computer graphics, when synthesizing images of complex materials, where subsurface scattering determines appearance.
+
+Multi-layered Monte Carlo photon transport\cite{wang1992monte} (MCML) is a system for accurate simulations of light transport in materials with complex geometry. This report presents a MCML implementation, that allows even more complex geometry, by specifying the boundaries between layers as heightfields. The purpose is to provide a ground truth of surface appearance for physically based rendering. Monte Carlo methods are accepted to be leading in accuracy, but low-noise results have to be bought with long computation times. The implementation therefore employs massive parallelization.
 
 The report will first explain the principles of Monte Carlo light transport, before moving on to related work covering MCML specifically. On this basis, the contributions made by this project are stated and explained in detail in the implementation section. The new implementation is verified against the existing work and finally results are presented.
 
@@ -32,7 +35,7 @@ The report will first explain the principles of Monte Carlo light transport, bef
 	\label{trajectory}
 \end{figure}
 
-Monte Carlo simulation of light is very accurate, because it simulates single photon packets and records the distribution of a large number of photons. This implies, that it is a statistical method, using a pseudo random number generator to compute, what can be thought of random walks of photons, visualized in \autoref{trajectory}.
+Monte Carlo simulation of light is very accurate, because it simulates single photon packets and records the distribution of a large number of photons. This implies, that it is a statistical method, using a pseudo random number generator to compute, what can be thought of random walks of photons, visualized in \Cref{trajectory}.
 
 A photon walk is defined by scattering and absorption in a specific material. These are also called the interaction properties:
 
@@ -53,7 +56,7 @@ Finally, refractive indices are needed to compute the amounts of reflection and 
 	\label{layer-model}
 \end{figure}
 
-The material geometry in MCML is a sequence of layers as shown in \autoref{layer-model}. Photons enter through the coordinate origin and move in 3 dimensions.
+The material geometry in MCML is a sequence of layers as shown in \Cref{layer-model}. Photons enter through the coordinate origin and move in 3 dimensions.
 
 Radiance distributions are recorded only as profiles, because the material model is radially symmetric. The reflectance profile is the distribution of photons that escaped at the top layer and transmittance is the analog at the bottom layer, in other words:
 
@@ -74,7 +77,7 @@ There are also other recorded quantities, such as absorption, that are of less i
 	\label{flowchart}
 \end{figure}
 
-The work is based on the light propagation model by Prahl et al.~\cite{prahl89}. You can get an overview of the algorithm by looking at the flowchart in \autoref{flowchart}.
+MCML is based on the light propagation model by Prahl et al.~\cite{prahl89}. You can get an overview of the algorithm by looking at the flowchart in \Cref{flowchart}.
 
 Photons are initialized with a weight of $1.0$. The presence of weight means, that not actually single photons, but photon packets are simulated. A photon packet does not have atomic behavior, in the sense that its energy content can be divided into fractions. However the packet moves on a single path as if it was a single photon. This is done to reduce variance and hereby the overall number of photons needed for low-noise results. In the following, photon and photon packet refer to the same thing.
 
@@ -88,7 +91,7 @@ If there was a collision, the algorithm decides if the photon is reflected, i.e.
 
 The simulation ends, when the target number of photons equals the number of photons, that left the layer or did not survive the roulette.
 
-Specifics with regard to multiple layers, variable boundary shapes and general implementation are described in \autoref{impl}.
+Specifics with regard to multiple layers, variable boundary shapes and general implementation are described in \Cref{impl}.
 
 \subsection{Previous implementations}
 
@@ -100,7 +103,13 @@ Alerstam et al.~\cite{alerstam2008parallel} published a GPU implementation in 20
 
 The implementation of MCML presented here, that I want to call clustermcml, can use multiple PCs and GPUs by any vendor for parallelization and is based on OpenCL and MPI. Details are described in the implementation section.
 
-The other contribution is support for non-planar layers. This is done by representing boundaries as radially symmetric heightfields. The symmetry allows to store only a 1-dimensional array of height samples. Non-symmetric heightfields would only make sense, once photon distributions are also recorded in two dimensions. Additionally, each height value is associated with a spacing, to enable irregular grids. The surface between height samples is defined by linear interpolation. In 3-dimensional space, a surface is therefore a sequence of connected concentric capped cones of finite height.
+\begin{figure}[ht!]
+	\includegraphics[width=\linewidth]{img/radial_heightfield.pdf}
+	\caption{A layer boundary surface in the new MCML implementation is represented by a radial heightfield. The samples shown on the left are interpreted in 3-space as shown on the right. In this example, $10$ samples, uniform spacing $0.1cm$ and a total height of $1cm$ are used. Outside the sampled range, boundaries are flat.}
+	\label{heightfield}
+\end{figure}
+
+The other contribution is support for non-planar layers. This is done by representing boundaries as radially symmetric heightfields. The symmetry allows to store only a 1-dimensional array of height samples. Non-symmetric heightfields would only make sense, once photon distributions are also recorded in two dimensions. To enable irregular grids, eEach height value is associated with a spacing. The surface between height samples is defined by linear interpolation. Thus, in 3-dimensional space, a surface is a sequence of connected concentric capped cones of finite height. ~\Cref{heightfield} shows an example of a heightfield.
 
 \section{Implementation}
 \label{impl}
@@ -113,7 +122,7 @@ On the first level, work is distributed onto multiple PCs that are connected by 
 
 On the second level, work is further split on GPU threads. We chose OpenCL for this task, since it is available for all relevant GPU architectures. An OpenCL kernel implements the actual MCML photon transport for one photon packet. The maximum number of threads can be queried through OpenCL and depends on used registers and other GPU hardware resources. The kernel computes a fixed number of bounces to limit the time spent on the GPU, because the operating system would kill a process that blocks the GPU for too long. The program maintains an array by which it assigns one photon packet to one thread and repeatedly starts GPU runs, followed by checking the array for photon packets to be restarted until the target amount has been reached.
 
-Work distribution is possible using different strategies. One implemented approach assumes equal processing power among MPI nodes and divides the total target number of photons up-front by the number of nodes, before each node starts its part of the simulation (note that we use the term photon, when we actually refer to photon packets, which is explained in \autoref{impl:photon-transport} about photon transport). In practice, this approach did not work well. Specifically, it sometimes caused MPI to abort because of a timeout during Reduce. Therefore a more fine-grained prallelization approach was implemented as follows.
+Work distribution is possible using different strategies. One implemented approach assumes equal processing power among MPI nodes and divides the total target number of photons up-front by the number of nodes, before each node starts its part of the simulation (note that we use the term photon, when we actually refer to photon packets, which is explained in \Cref{impl:photon-transport} about photon transport). In practice, this approach did not work well. Specifically, it sometimes caused MPI to abort because of a timeout during Reduce. Therefore a more fine-grained prallelization approach was implemented as follows.
 
 First, we divide MPI nodes in several workers and one master. We can run a batch of $N$ photons in parallel, where $N$ equals thread count. In order to limit time spent on GPU, we always run for a fixed number of bounces. We cannot know how many runs it will take until the batch is finished (all photons terminated). Instead we count finished photons after each run. If after run $i$, a number $K > Z$ photons have finished, the worker sends $K$ to master. One thread of the master must be in receiving state. If the master finds that the number of photons that is not being worked on is $L >= K$, the response is CONTINUE, otherwise FINISH. When receiving CONTINUE, the worker spawns $K$ new photons, otherwise it finishes the remaining photons (with thread utilitization $< N$) and calls Reduce on its output arrays. When $L$ drops to zero, the master also calls Reduce, collects the total result and writes it to file.
 
@@ -145,7 +154,7 @@ When a photon state is initialized, a hash function is used on the state array i
 
 Previous MCML implementations used flat boundaries, that were implicitly defined by the layers. The implementation presented here supports both implicit boundaries and explicitly defined heightfields.
 
-Heights are interpreted from heightfield origin, which is defined by layer thicknesses, into negative z-direction, because in MCML the z-axis points \emph{down} into the material. The last height sample is valid for all radii that are out of bounds.
+Heights are interpreted from heightfield origin, which is defined by layer thicknesses, into negative z-direction (note that in MCML the z-axis points \emph{down} into the material). The last height sample is taken for all radii that are out of bounds.
 
 To enable mixing implicit and explicit boundaries in the same simulation, the MCI file format was extended. Lines containing explicit boundary data start with 'b', then the number of samples and then the list of sample values, which consists of alternating heights and spacings. This is an excerpt from an example MCI file:
 
@@ -188,9 +197,9 @@ The base of the heightfield intersection algorithm is an analytical method for i
 
 First we must find all potential cones in the path of the line. We assign an ascending index from inner to outer cones. To find the highest candidate index, we count the spacings, that fit into the length of the xy-vectors of the start and end of the line, and take the maximum. The lowest candidate index is obtained by projecting the heightfield origin onto the line and count the spacings that fit into the length of the xy-vector of the resulting point. All cones between these two indices, inclusively, are tested for intersection with the line and the closest hit is returned.
 
-To calculate reflections and transmissions at heightfield boundaries, a normal is needed. The line-cone intersection method was extended to additionally return the normal at the point of intersection. There are sharp local minima and maxima where the gradient cannot be defined, since the heightfield is interpolated linearly. For these cases the boundary is treated as a xy-plane with normal along z-axis. The direction of the normal is always chosen to point into the half space from where an intersecting ray comes in.
+To calculate reflections and transmissions at heightfield boundaries, a normal is needed. The line-cone intersection method was extended to additionally return the normal at the point of intersection. There are sharp local minima and maxima where the gradient cannot be defined, since the heightfield is interpolated linearly. For these cases the boundary is treated as a xy-plane with normal along z-axis. The direction of the normal is always chosen to point into the half-space from where an intersecting ray comes in.
 
-If there was an intersection in the last photon step and the photon is still inside the simulation domain, the corresponding boundary has to be temporarily disabled for intersections during the next step. The reason for this is that the photon might not be moved exactly onto the boundary surface, because of limited floating point accuracy, and it would therefore be possible to detect another erroneous intersection with the same boundary.
+If there was an intersection in the last photon step and the photon is still inside the simulation domain, the corresponding boundary has to be temporarily disabled for intersections during the next step. The reason for this is that the photon is in most cases not be moved exactly onto the boundary surface, because of limited floating point accuracy, and it would therefore be possible to detect another erroneous intersection with the same boundary.
 
 There is a fallback to a faster intersection test with a plane, if a boundary is not a heightfield.
 
@@ -203,11 +212,11 @@ mpiexec /machinefile mpi.txt /pwd "***"
 clustermcml-windows.exe mcmlKernel.c "-Werror" sample.mci
 \end{lstlisting}
 
-where the machinefile mpi.txt specifies the IP address and number of processes per MPI node. The executable is called clustermcml-windows and receives as first argument the MCML kernel file, which will be compiled by the OpenCL implementation. After the kernel file follow the OpenCL compiler arguments, where this example wants to print all warnings as errors. On the tested machines, the current kernel code did not generate warnings. You can add other compiler flags, such as "-D IGNORE\_A" to skip writing to absorption array or "-D IGNORE\_HEIGHTFIELDS" to use implicit flat boundaries, where both options exist to speed up simulation times.
+where the machinefile mpi.txt specifies the IP address and number of processes per MPI node (details can be found in MPI documentation). The executable is called \emph{clustermcml-windows} and receives as first argument the MCML kernel file, which will be compiled by the OpenCL implementation. After the kernel file follow the OpenCL compiler arguments, where this example wants to print all warnings as errors. On the tested machines, the current kernel code did not generate warnings. You can add other compiler flags, such as "-D IGNORE\_A" to skip writing to absorption array or "-D IGNORE\_HEIGHTFIELDS" to use implicit flat boundaries, where both options exist to speed up simulation times.
 
 There is another make target for an executable called singlemcml-windows, which is a non-parallel and CPU-only version of the program for the purpose of easier debugging.
 
-The implementation was currently only built and run on Microsoft Windows, but all used libraries are also available on other platforms. There is no build system other than make (on Windows: nmake) in place, because the project is relatively small and simple. The Makefile can be altered with analog compiler commands and flags, as well as runtime and library paths.
+The implementation was currently only built and run on Microsoft Windows, but all used libraries are also available on other platforms. There is no build system other than make (on Windows: nmake) in place, because the project is relatively small and simple. The Makefile is well structured and can be altered with analog compiler commands and flags, as well as runtime and library paths easily.
 
 \subsection{Limitations}
 
@@ -237,51 +246,50 @@ The implementation currently leaves much room for performance optimization. Impo
 
 \section{Verification}
 
-\begin{figure}[ht!]
-	\includegraphics[width=\linewidth]{img/verification1.pdf}
-	\caption{Comparison of the diffuse reflectance profiles obtained with the implementation presented in this report, clustermcml, and the previous implementation CUDAMCML as reference.}
-	\label{verification1}
-\end{figure}
-
 The purpose of this section is to verify, that the results of the new MCML implementation are correct. To this end, CUDAMCML serves as reference, which was already verified against the original MCML. Generally, because of the stochastic nature of the Monte Carlo method, one cannot compare exact outputs. Even if the same seed and same PRNG were used, results are not deterministic because the order of execution of the threads is undefined. Therefore, radiance profiles of both implementations are compared by plotting them into the same coordinate system.
 
 The focus of this project lies on the 2D data of reflectance and transmittance as function of radius. Therefore, and because these profiles are easier to compare than 3D data, verification is confined to them.
 
 It is expected, that the plots differ due to noise, but important characteristics of the curves should be the same. One important characteristic arises from shallow layers. Considering single scattered photons, escape at a certain radius on the top boundary becomes impossible, because the layer depth restricts the escape angles at that point to be grazing angles, i.e. angles of total reflection. Below that radius, a majority of escaping photons are single scattered, with the number of photons falling fast, the less straight they pass (governed by Fresnel formula). Above that radius, escaping photons are multiple scattered, with mixed escape angles, causing the falling rate to be governed by the spatial distribution of photons weight. The change in slope is clearly visible in plots, of which one example is presented next.
 
-\autoref{verification1} compares the diffuse reflectance profiles of clustermcml and CUDAMCML using 100 million photons and one layer of thickness $dl=0.1cm$. The absorption coefficient is $\mu_a=0.1$, the scattering coefficient $\mu_s=1$ and scattering anisotropy $g=0.5$. The refractive indices are $n=1.34$ inside the layer and $1$ outside. The detection window has a size of $1cm$ and a resolution of $0.005cm$, i.e. using $200$ bins. \autoref{verification2} compares transmission profiles of the same simulation.
+\Cref{verification1} compares the radiance profiles of clustermcml and CUDAMCML using 100 million photons and one layer of thickness $dl=0.1cm$. The absorption coefficient is $\mu_a=0.1$, the scattering coefficient $\mu_s=1$ and scattering anisotropy $g=0.5$. The refractive indices are $n=1.34$ inside the layer and $1$ outside. The detection window has a size of $1cm$ and a resolution of $0.005cm$, i.e. using $200$ bins.
 
 Plotted on the y-axis is a quantity, that is radiance multiplied by radius. The quantity is chosen that way to account for the larger area at large radii. Note that radiance as recorded by MCML is probability per unit area. Also note that a logarithmic scale is used.
 
+\Cref{verification3} compares profiles for a thicker layer of $dl=1cm$. The main curve characteristic here is smoothness. Through the low amount of noise, the curves of both implementations almost exactly match each other.
+
+A simulation with two layers was performed with resulting plots shown in~\Cref{verification5}. Each layer has thickness $dl=1.5cm$, absorption coefficient $\mu_a=0.1$ and scattering coefficient $\mu_s=10$. Refractive indices of $n_1=1.33$ and $n_2=1.2$ and scattering anisotropies of $g_1=0$ and $g_2=0.9$ were used for the first and second layer respectively.
+
+The plots indicate correct results despite different amounts of noise. It should be noted that CUDAMCML uses a different PRNG (Multiply-with-Carry), which can affect noise.
+
+Verification was only possible with flat boundary surfaces. However, to provide validity to some degree with respect to structured boundaries as described in~\Cref{impl:boundary_specification} and~\Cref{impl:intersection}, the same intersection algorithm was used, while input data consisted of degenerated "flat" cones.
+
 \begin{figure}[ht!]
+	\includegraphics[width=\linewidth]{img/verification1.pdf}
 	\includegraphics[width=\linewidth]{img/verification2.pdf}
-	\caption{Corresponding transmission profiles for~\autoref{verification1}.}
-	\label{verification2}
+	\caption{Comparison of the diffuse reflectance and total transmittance profiles obtained with the implementation presented in this report, clustermcml, and the previous implementation CUDAMCML as reference.}
+	\label{verification1}
 \end{figure}
 
 \begin{figure}[ht!]
 \includegraphics[width=\linewidth]{img/verification3.pdf}
-\caption{Diffuse reflectance profiles for a thicker layer than the one in~\autoref{verification1}.}
+\includegraphics[width=\linewidth]{img/verification4.pdf}
+\caption{Verifying reflectance and transmittance profiles for a thicker layer than the one in~\Cref{verification1} against CUDAMCML.}
 \label{verification3}
 \end{figure}
 
 \begin{figure}[ht!]
-\includegraphics[width=\linewidth]{img/verification4.pdf}
-\caption{Corresponding transmission profiles for~\autoref{verification3}.}
-\label{verification4}
+	\includegraphics[width=\linewidth]{img/verification5.pdf}
+	\includegraphics[width=\linewidth]{img/verification6.pdf}
+	\caption{Verifying reflectance and transmittance profiles for two layers against CUDAMCML.}
+	\label{verification5}
 \end{figure}
-
-\autoref{verification3} and~\autoref{verification4} compare profiles for a thicker layer of $dl=1cm$. The main curve characteristic here is smoothness. Through the low amount of noise, the curves of both implementations almost exactly match each other.
-
-The plots indicate correct results despite different amounts of noise. It should be noted that CUDAMCML uses a different PRNG (Multiply-with-Carry), which can affect noise.
-
-Verification was only possible with flat boundary surfaces. However, to provide validity to some degree with respect to structured boundaries as described in~\autoref{impl:boundary_specification} and~\autoref{impl:intersection}, the same intersection algorithm was used, while input data consisted of degenerated "flat" cones.
 
 \section{Results}
 
 This section shows novel radiance profiles that arise from simulations with different boundary surface shapes.
 
-The parameters can be read from the legend, which uses the same naming convention as in the previous section. Boundary surfaces are shown as dotted lines in the same color as the corresponding radiance profile. The following shapes were used.
+For the simulations, a single layer was used. For demonstration purposes, we chose the following shapes, each used at the top and bottom boundary:
 
 \begin{description}
 	\item[flat50] A trivial heightfield with all heights set to zero. As all other shapes, it is defined by $50$ samples with uniform spacing of $0.01cm$.
@@ -293,8 +301,6 @@ The parameters can be read from the legend, which uses the same naming conventio
 	\item[lonoise] Noise with low amplitude.
 \end{description}
 
-The shapes are the same at the top and bottom boundary of the layer.
-
 The heightfields are centered around an area-weighted mean height, to be comparable with the flat boundary. The weighting is done, because, in the radial model, outer height values contribute to a larger part of the surface. The mean is computed by
 
 \begin{equation}
@@ -303,26 +309,40 @@ The heightfields are centered around an area-weighted mean height, to be compara
 
 where $N$ is the number of samples, $h_i$ is the height at index $i$ and $r_i$ is the radius, i.e. the sum of spacings up to index $i$.
 
+Boundary surfaces are shown as dotted lines in the same color as the corresponding radiance profile. Simulation parameters can be read from the legend, which uses the same naming convention as in the previous section.
+
+\Cref{results:fig:hill} compares the diffuse reflectance and total transmittance profiles of flat with hill-shaped boundaries. \Cref{results:fig:crater} and \Cref{results:fig:noise} are analogous plots with crater-shaped and noise-shaped boundaries, respectively.
+
 \begin{figure}[ht!]
-	\includegraphics[width=\linewidth]{img/result1.pdf}
-	\caption{Comparison of diffuse reflectance profiles of 7 different surfaces.}
-	\label{result1}
+	\includegraphics[width=\linewidth]{img/hill_R.pdf}
+	\includegraphics[width=\linewidth]{img/hill_T.pdf}
+	\caption{Comparison of flat with hill-shaped boundaries. Reflectance (top) and transmittance (bottom) are shown as solid lines and use the left y-axis. Heightfields are shown as dotted lines and use the right y-axis.}
+	\label{results:fig:hill}
 \end{figure}
 
 \begin{figure}[ht!]
-	\includegraphics[width=\linewidth]{img/result2.pdf}
-	\caption{Comparison of diffuse reflectance profiles of flat surface with 4 variations of curved surfaces. Solid lines belong to the left and dotted lines to the right axis.}
-	\label{result2}
+	\includegraphics[width=\linewidth]{img/crater_R.pdf}
+	\includegraphics[width=\linewidth]{img/crater_T.pdf}
+	\caption{Comparison of flat with crater-shaped boundaries.}
+	\label{results:fig:crater}
 \end{figure}
 
 \begin{figure}[ht!]
-\includegraphics[width=\linewidth]{img/result3.pdf}
-\caption{Comparison of diffuse reflectance profiles of flat surface with 2 variation of noise surfaces. Solid lines belong to the left and dotted lines to the right axis.}
-\label{result3}
+\includegraphics[width=\linewidth]{img/noise_R.pdf}
+\includegraphics[width=\linewidth]{img/noise_T.pdf}
+\caption{Comparison of flat with noise-shaped boundaries.}
+\label{results:fig:noise}
 \end{figure}
 
 \section{Conclusion and Future Work}
 
-\FloatBarrier
+The new implementation of MCML enables us to obtain radiance profiles for a wide range of surface shapes. It can replace measurements as a cheaper way of obtaining ground truths about light distribution.
+
+Radiance profiles reveal the effect of varying surface shapes, and therefore allow to model surface appearance with approximate analytic curves or lookup tables. The intended main benefit of the new implementation is the use of these profiles by fast rendering techniques for subsurface scattering.
+
+Real-world surfaces are often more complex than radially symmetric heightfields. Possible future work is therefore extending the boundary geometry to arbitrary meshes. In this case one should also record radiance in two spatial dimensions.
+
+The decision if a photon passes a boundary or not is currently purely based on Fresnel reflectance. Another subject for future work would be to support more complex BRDFs.
+
 \bibliography{bibliography}
 \end{document}          
