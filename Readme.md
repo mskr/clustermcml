@@ -2,10 +2,12 @@
 
 Implementation of MCML in MPI and OpenCL.
 
+> What does this mean? Well it means, that this program can answer the question of how a material made of multiple layers (which actually applies to nearly all organic materials) appears to our eyes from both sides, when a single ray enters from above, and all the subsurface scattering is tracked. It does this very accurately, because it uses the Monte Carlo method, and it does it relatively fast, because it uses massive parallelization.
+
 (Planned) extensions to original MCML are:
-- Non-flat boundary shapes
-- Dwivedi sampling
-- Reflection BRDFs
+- [x] Non-flat boundary shapes
+- [ ] Dwivedi sampling
+- [ ] Reflection BRDFs
 
 ## Build
 
