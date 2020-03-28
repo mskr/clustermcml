@@ -63,11 +63,9 @@ void getCLKernelName();
 ```
 ```c
 /**
-* Allocates host memory and reports sizes for device buffers.
+* Allocates computing resources using clmem.h.
 */
-void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* otherOptions,
-int* inputBufferCount, size_t* inputBufferSizes,
-int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount)
+void allocCLKernelResources(size_t totalThreadCount, char* kernelOptions, char* mcmlOptions, int rank)
 ```
 ```c
 /**
@@ -76,8 +74,7 @@ int* outputBufferCount, size_t* outputBufferSizes, int maxBufferCount)
 * waits for it to finish 
 * and accumulates the results from all threads and processes.
 */
-void runCLKernel(cl_context context, cl_command_queue cmdQueue, cl_kernel kernel, cl_mem* inputBuffers, cl_mem* outputBuffers,
-size_t totalThreadCount, size_t simdThreadCount, int processCount, int rank);
+void runCLKernel(cl_command_queue cmdQueue, cl_kernel kernel, size_t totalThreadCount, size_t simdThreadCount, int processCount, int processID)
 ```
 
 
