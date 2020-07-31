@@ -358,7 +358,6 @@ Real intersectCone(Real3 lineOrigin, Real3 lineDirection, struct Cone3 cone, Rea
         const Real3 basePoint = projectPointToPlane(basePlane, p);
         const Real3 tang = rotate90PointAroundVector(cone.ray.direction, basePoint - cone.ray.origin);
         Real3 normal = cross(normalize(grad), normalize(tang));
-        if (dot(normal, lineDirection) > 0.0) normal *= (Real3)(-1.0); // let normal face ray
         *outNormal = normal;
 
         // Return smallest path length to intersection
